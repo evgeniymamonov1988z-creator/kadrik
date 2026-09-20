@@ -1,18 +1,11 @@
 @echo off
 chcp 65001 >nul
-REM ==== Сборка Кадрика в .exe БЕЗ чёрного окна консоли ====
-REM Просто запустите этот файл двойным щелчком.
-REM Готовый Kadrik.exe появится в папке dist.
-
-echo Готовлю сборку...
+REM ==== Sborka Kadrik.exe BEZ chyornogo okna ====
+REM Prosto zapustite etot fayl dvoynym schelchkom.
+echo Gotovlyu sborku...
 python -m pip install --upgrade pyinstaller pillow tkinterdnd2
-
-echo Собираю Kadrik.exe (без консоли)...
-python -m PyInstaller --noconfirm --onefile --noconsole --name Kadrik ^
-  --icon icon.ico ^
-  --collect-all tkinterdnd2 --collect-all PIL ^
-  kadrik.py
-
+echo Sobirayu Kadrik.exe...
+python -m PyInstaller --noconfirm --onefile --noconsole --name Kadrik --icon icon.ico --collect-all tkinterdnd2 --collect-all PIL kadrik.py
 echo.
-echo Готово! Файл Kadrik.exe лежит в папке dist.
+echo Gotovo! Fayl Kadrik.exe lezhit v papke dist.
 pause
