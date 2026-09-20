@@ -29,6 +29,13 @@ try:
 except ImportError:
     HAS_UPDATER = False
 
+# Pillow — нужен только для режима «самые чёткие кадры» (оценка резкости)
+try:
+    from PIL import Image, ImageFilter, ImageStat
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+
 
 def detect_lang():
     """Русский язык на российской Windows, иначе английский."""
@@ -61,6 +68,8 @@ STRINGS = {
         "update":     "Обновить",
         "wait":       "Жду видео…",
         "cutting":    "Нарезаю кадры…",
+        "scenes":     "Ищу сцены…",
+        "ranking":    "Выбираю чёткие кадры…",
         "done":       "Готово: {n} кадров",
         "err_ffmpeg": "Ошибка ffmpeg",
         "err":        "Ошибка: {e}",
@@ -87,6 +96,8 @@ STRINGS = {
         "update":     "Update",
         "wait":       "Waiting For Video…",
         "cutting":    "Extracting Frames…",
+        "scenes":     "Detecting Scenes…",
+        "ranking":    "Picking Sharp Frames…",
         "done":       "Done: {n} Frames",
         "err_ffmpeg": "Ffmpeg Error",
         "err":        "Error: {e}",
@@ -136,13 +147,71 @@ BASE_DIR = Path.home() / "Mamonov" / "kadrik"
 REPO_URL = "https://git.sourcecraft.dev/evgeniymamonov1988/kadrik.git"
 REPO_BRANCH = "main"
 
-# Настройки по умолчанию (UI убран, берём как есть)
+# Настройки по умолчанию (умный режим)
 CFG = {
-    "fps": 1,          # запасная частота, если не удалось узнать длину видео
-    "format": "png",   # png / jpg
-    "quality": 95,     # качество jpg (1-100), для png не используется
-    "max_frames": 100, # потолок: не больше стольки кадров с одного видео
+    "format": "png",       # png / jpg
+    "quality": 95,          # качество jpg (1-100), для png не используется
+    "scene_cap": 100,       # шаг 1: берём по одному кадру на сцену, но не больше стольки
+    "keep_sharpest": 20,    # шаг 2: из них оставляем столько самых чётких
+    "scene_thresh": 0.3,    # чувствительность к смене сцены (0..1, меньше = больше сцен)
+    "fps": 1,               # запасное значение для аварийного режима
 }
+
+
+def _pillow():
+    """Возвращает модули Pillow для оценки чёткости или None."""
+    try:
+        from PIL import Image, ImageFilter, ImageStat
+        return Image, ImageFilter, ImageStat
+    except Exception:
+        return None
+
+
+def _detect_scene_times(video_path, thresh):
+    """Секунды, где меняется сцена (через ffmpeg)."""
+    times = []
+    try:
+        cmd = ["ffmpeg", "-i", str(video_path), "-vf",
+               f"select='gt(scene,{thresh})',metadata=print",
+               "-an", "-f", "null", "-"]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+        for line in (r.stderr or "").splitlines():
+            if "pts_time:" in line:
+                try:
+                    times.append(float(line.split("pts_time:")[1].split()[0]))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return times
+
+
+def _sharpness(path, Image, ImageFilter, ImageStat):
+    """Оценка чёткости кадра: чем больше, тем чётче (вариация Лапласа)."""
+    try:
+        im = Image.open(path).convert("L")
+        im.thumbnail((640, 640))
+        lap = ImageFilter.Kernel((3, 3), [0, 1, 0, 1, -4, 1, 0, 1, 0], scale=1, offset=0)
+        edges = im.filter(lap)
+        w, h = edges.size
+        if w > 4 and h > 4:
+            edges = edges.crop((2, 2, w - 2, h - 2))
+        return ImageStat.Stat(edges).var[0]
+    except Exception:
+        return -1.0
+
+
+def _extract_at(video_path, t, dst, ext, quality):
+    """Достаёт один кадр на секунде t."""
+    cmd = ["ffmpeg", "-ss", f"{t:.3f}", "-i", str(video_path), "-frames:v", "1"]
+    if ext in ("jpg", "jpeg"):
+        cmd += ["-q:v", str(max(1, min(31, int(31 - quality * 30 / 100))))]
+    cmd += [str(dst), "-y"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        return r.returncode == 0 and Path(dst).exists()
+    except Exception:
+        return False
 
 
 def _video_duration(video_path):
@@ -159,8 +228,8 @@ def _video_duration(video_path):
 
 
 def extract_frames(video_path, output_dir, cfg, log_fn=None):
-    """Нарезает видео на кадры через ffmpeg."""
-    fps = cfg["fps"]
+    """Умная нарезка: шаг 1 — по кадру на каждую новую сцену (до scene_cap),
+    шаг 2 — из них оставляем keep_sharpest самых чётких."""
     fmt = cfg["format"]
     quality = cfg["quality"]
 
@@ -168,38 +237,95 @@ def extract_frames(video_path, output_dir, cfg, log_fn=None):
     if not video_path.exists():
         raise FileNotFoundError(video_path)
 
-    # Кадры складываем в Mamonov/kadrik/<имя_видео>_frames.
+    # Кадры складываем в Mamonov/kadrik/<имя_видео>_frames (папки создаются сами).
     if not output_dir:
         output_dir = BASE_DIR / f"{video_path.stem}_frames"
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     ext = fmt if fmt in ("png", "jpg", "jpeg") else "png"
+
+    scene_cap = int(cfg.get("scene_cap", 100) or 100)
+    keep = int(cfg.get("keep_sharpest", 20) or 20)
+    duration = _video_duration(video_path)
+    pil = _pillow()
+
+    import shutil as _sh
+
+    def _clear_old():
+        for old in output_dir.glob(f"frame_*.{ext}"):
+            try:
+                old.unlink()
+            except Exception:
+                pass
+
+    def _save_ordered(items):
+        """items: список (время, путь) — сохраняем по порядку времени."""
+        _clear_old()
+        items = sorted(items, key=lambda x: x[0])
+        for i, (_t, p) in enumerate(items, 1):
+            dst = output_dir / f"frame_{i:04d}.{ext}"
+            try:
+                if dst.exists():
+                    dst.unlink()
+                Path(p).replace(dst)
+            except Exception:
+                pass
+        return len(items)
+
+    # -------- УМНЫЙ РЕЖИМ --------
+    if pil and duration:
+        thresh = float(cfg.get("scene_thresh", 0.3))
+
+        # Шаг 1: находим смены сцен, берём по кадру на каждую (до scene_cap штук)
+        if log_fn:
+            log_fn(T("scenes"))
+        scene_times = _detect_scene_times(video_path, thresh)
+        cand = [0.0] + [t for t in scene_times if t > 0.5]
+        cand = sorted(set(round(x, 2) for x in cand))
+        # если сцен больше лимита — равномерно прореживаем до scene_cap
+        if len(cand) > scene_cap:
+            idx = sorted(set(round(i * (len(cand) - 1) / (scene_cap - 1)) for i in range(scene_cap)))
+            cand = [cand[i] for i in idx]
+
+        # Шаг 2: достаём кадры-сцены, меряем чёткость, оставляем keep самых чётких
+        if log_fn:
+            log_fn(T("ranking"))
+        tmp = output_dir / "_cand"
+        _sh.rmtree(tmp, ignore_errors=True)
+        tmp.mkdir(parents=True, exist_ok=True)
+        scored = []
+        for i, t in enumerate(cand):
+            p = tmp / f"c_{i:05d}.{ext}"
+            if _extract_at(video_path, t, p, ext, quality):
+                scored.append((_sharpness(p, *pil), t, p))
+
+        if scored:
+            scored.sort(key=lambda x: x[0], reverse=True)
+            best = scored[:keep]
+            n = _save_ordered([(t, p) for _s, t, p in best])
+            _sh.rmtree(tmp, ignore_errors=True)
+            if log_fn:
+                log_fn(T("done", n=n))
+            return output_dir
+        _sh.rmtree(tmp, ignore_errors=True)
+
+    # -------- АВАРИЙНЫЙ РЕЖИМ (нет Pillow / не узнали длину / сцены не нашлись) --------
+    # Ровно keep кадров, равномерно по всему видео.
+    if log_fn:
+        log_fn(T("cutting"))
     pattern = output_dir / f"frame_%04d.{ext}"
-
-    # Потолок кадров: равномерно раскидываем не больше max_frames кадров по всему видео.
-    max_frames = int(cfg.get("max_frames", 0) or 0)
-    duration = _video_duration(video_path) if max_frames > 0 else None
-    if duration and max_frames > 0:
-        # частота = сколько кадров в секунду, чтобы за всё видео вышло ~max_frames
-        use_fps = max_frames / duration
-        # не выше 30/с — чтобы не плодить одинаковые кадры на коротких роликах
-        use_fps = min(use_fps, 30.0)
+    if duration:
+        use_fps = min(keep / duration, 30.0)
     else:
-        use_fps = fps
-
+        use_fps = cfg.get("fps", 1)
+    _clear_old()
     cmd = ["ffmpeg", "-i", str(video_path), "-vf", f"fps={use_fps}"]
     if ext in ("jpg", "jpeg"):
         cmd += ["-q:v", str(max(1, min(31, int(31 - quality * 30 / 100))))]
     else:
         cmd += ["-compression_level", "5"]
-    # Жёсткий потолок: ни при каких условиях не больше max_frames файлов
-    if max_frames > 0:
-        cmd += ["-frames:v", str(max_frames)]
-    cmd += [str(pattern), "-y"]
-
-    if log_fn:
-        log_fn(T("cutting"))
+    cmd += ["-frames:v", str(keep), str(pattern), "-y"]
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
@@ -207,7 +333,7 @@ def extract_frames(video_path, output_dir, cfg, log_fn=None):
             log_fn(T("err_ffmpeg"))
         raise RuntimeError(result.stderr[:300])
 
-    files = sorted(output_dir.glob(f"*.{ext}"))
+    files = sorted(output_dir.glob(f"frame_*.{ext}"))
     if log_fn:
         log_fn(T("done", n=len(files)))
     return output_dir
