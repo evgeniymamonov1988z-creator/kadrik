@@ -155,12 +155,11 @@ STRINGS = {
         # Демо / активация
         "trial_left":  "Демо: осталось {n} дн.",
         "demo_over":   "Демо закончилось",
-        "demo_hint":   "Демо закончилось.\nВведите ключ.",
         "buy_at":      "Купить: evgeniymamonov.com",
-        "key_hint":    "Ключ активации",
-        "activate":    "Активировать",
-        "bad_key":     "Неверный ключ",
-        "act_ok":      "Активировано, спасибо!",
+        "checking_lic":"Проверяю покупку…",
+        "recheck":     "Проверить снова",
+        "not_yet":     "Пока не найдено.\nПосле оплаты нажмите «Проверить снова».",
+        "act_ok":      "Спасибо! Полная версия.",
     },
     "en": {
         "app":        "Kadrik",
@@ -194,12 +193,11 @@ STRINGS = {
         # Demo / activation
         "trial_left":  "Demo: {n} Days Left",
         "demo_over":   "Demo Expired",
-        "demo_hint":   "Demo Expired.\nEnter Key.",
         "buy_at":      "Buy: evgeniymamonov.com",
-        "key_hint":    "Activation Key",
-        "activate":    "Activate",
-        "bad_key":     "Wrong Key",
-        "act_ok":      "Activated, Thank You!",
+        "checking_lic":"Checking Purchase…",
+        "recheck":     "Check Again",
+        "not_yet":     "Not Found Yet.\nAfter Payment Click Check Again.",
+        "act_ok":      "Thank You! Full Version.",
     },
 }
 
@@ -467,7 +465,7 @@ class App:
 
         self.root = TkinterDnD.Tk() if HAS_DND else tk.Tk()
         self.root.title(T("app"))
-        self.root.geometry("220x290")
+        self.root.geometry("220x300")
         self.root.configure(bg=self.BG)
         self.root.resizable(False, False)
 
@@ -535,7 +533,14 @@ class App:
         tk.Label(
             self.root, text=T("app"),
             bg=self.BG, fg=self.ACCENT, font=("Helvetica", 14, "bold")
-        ).pack(pady=(10, 6))
+        ).pack(pady=(10, 2))
+
+        # Постоянная строка состояния демо (всегда на виду)
+        self.demo_lbl = tk.Label(
+            self.root, text="", bg=self.BG, fg="#e5c07b",
+            font=("Helvetica", 8, "bold"),
+        )
+        self.demo_lbl.pack(pady=(0, 4))
 
         # Чёрный квадрат в центре — сюда перетаскивается видео
         self.drop_area = tk.Label(
@@ -635,6 +640,7 @@ class App:
         """Определяет состояние демо и реагирует."""
         if not HAS_LIC:
             self.lic_state = "activated"
+            self._set_demo_label()
             return
         try:
             state, left = lic.status(BASE_DIR)
@@ -642,15 +648,57 @@ class App:
             state, left = "activated", 0
         self.lic_state = state
         self.lic_left = left
+        self._set_demo_label()
         if state == "trial":
             self._log(T("trial_left", n=left))
+            # Тихо в фоне спрашиваем сайт — вдруг копия уже куплена
+            threading.Thread(target=self._online_check, args=(False,), daemon=True).start()
         elif state == "expired":
             self._log(T("demo_over"))
-            # Показываем окно активации сразу после открытия
-            self.root.after(400, self._show_activation)
+            # Пробуем снять демо онлайн; если нет — покажем окно покупки
+            threading.Thread(target=self._online_check, args=(True,), daemon=True).start()
+
+    def _online_check(self, show_if_locked):
+        """Спрашивает сайт, куплена ли копия (в фоне)."""
+        try:
+            result = lic.check_online()
+        except Exception:
+            result = None
+        if result is True:
+            try:
+                lic.mark_licensed(BASE_DIR)
+            except Exception:
+                pass
+            self.lic_state = "activated"
+            self._log(T("act_ok"))
+            self.root.after(0, self._set_demo_label)
+            self.root.after(0, self._close_activation)
+        elif show_if_locked:
+            # не куплено или нет связи — предлагаем купить
+            self.root.after(0, self._show_activation)
+
+    def _close_activation(self):
+        win = getattr(self, "_act_win", None)
+        try:
+            if win is not None and tk.Toplevel.winfo_exists(win):
+                win.destroy()
+        except Exception:
+            pass
+
+    def _set_demo_label(self):
+        """Обновляет постоянную строку состояния демо."""
+        try:
+            if self.lic_state == "trial":
+                self.demo_lbl.config(text=T("trial_left", n=self.lic_left), fg="#e5c07b")
+            elif self.lic_state == "expired":
+                self.demo_lbl.config(text=T("demo_over"), fg="#e06c75")
+            else:
+                self.demo_lbl.config(text="")
+        except Exception:
+            pass
 
     def _show_activation(self):
-        """Окно: демо закончилось — ссылка на покупку и поле для ключа."""
+        """Окно: демо закончилось — ссылка на покупку и кнопка «Проверить снова»."""
         if getattr(self, "_act_win", None) and tk.Toplevel.winfo_exists(self._act_win):
             self._act_win.lift()
             return
@@ -660,46 +708,46 @@ class App:
         win.configure(bg=self.BG)
         win.resizable(False, False)
         win.attributes("-topmost", True)
-        win.geometry("260x210")
+        win.geometry("270x200")
 
         tk.Label(win, text=T("demo_over"), bg=self.BG, fg=self.ACCENT,
-                 font=("Helvetica", 12, "bold")).pack(pady=(12, 4))
+                 font=("Helvetica", 12, "bold")).pack(pady=(14, 6))
 
         # Ссылка на покупку (клик открывает сайт)
         link = tk.Label(win, text=T("buy_at"), bg=self.BG, fg="#9fbfdf",
-                        font=("Helvetica", 9, "underline"), cursor="hand2")
-        link.pack(pady=(0, 8))
+                        font=("Helvetica", 10, "underline"), cursor="hand2")
+        link.pack(pady=(0, 10))
         link.bind("<Button-1>", lambda e: self._open_site())
 
-        tk.Label(win, text=T("key_hint"), bg=self.BG, fg=self.FG,
-                 font=("Helvetica", 9)).pack()
-        entry = tk.Entry(win, width=22, justify="center",
-                         bg="#1e1e1e", fg=self.FG, insertbackground=self.FG,
-                         relief="flat")
-        entry.pack(pady=(2, 8), ipady=3)
-        entry.focus_set()
-
-        msg = tk.Label(win, text="", bg=self.BG, fg="#e06c75",
-                       font=("Helvetica", 8))
+        msg = tk.Label(win, text="", bg=self.BG, fg="#98c379",
+                       font=("Helvetica", 8), justify="center")
         msg.pack()
 
-        def _try_activate(_e=None):
-            key = entry.get()
-            try:
-                ok = HAS_LIC and lic.activate(BASE_DIR, key)
-            except Exception:
-                ok = False
-            if ok:
-                self.lic_state = "activated"
-                self._log(T("act_ok"))
-                win.destroy()
-            else:
-                msg.config(text=T("bad_key"))
+        def _recheck(_e=None):
+            msg.config(text=T("checking_lic"), fg="#9fbfdf")
 
-        entry.bind("<Return>", _try_activate)
-        tk.Button(win, text=T("activate"), command=_try_activate,
+            def _job():
+                try:
+                    res = lic.check_online()
+                except Exception:
+                    res = None
+                if res is True:
+                    try:
+                        lic.mark_licensed(BASE_DIR)
+                    except Exception:
+                        pass
+                    self.lic_state = "activated"
+                    self._log(T("act_ok"))
+                    self.root.after(0, self._set_demo_label)
+                    self.root.after(0, self._close_activation)
+                else:
+                    self.root.after(0, lambda: msg.config(text=T("not_yet"), fg="#e5c07b"))
+
+            threading.Thread(target=_job, daemon=True).start()
+
+        tk.Button(win, text=T("recheck"), command=_recheck,
                   bg=self.ACCENT, fg="#000000", relief="flat",
-                  activebackground="#7cc0f5").pack(pady=(4, 10), ipadx=8)
+                  activebackground="#7cc0f5").pack(pady=(10, 12), ipadx=8)
 
     def _open_site(self):
         try:

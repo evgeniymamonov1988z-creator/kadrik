@@ -1,61 +1,36 @@
 """
 Лицензия / демо для «Кадрика» — единая модель бренда MAMONOV.
 
-Правила (как у «Записи экрана»):
-  * Демо работает 3 дня без ограничений, потом просит ключ активации.
-  * Тяжёлую защиту не делаем — программа стоит около $3.
-  * Номер копии берётся из имени файла (Kadrik_AF1.exe) → из «хвоста» .exe
-    (метка MAMONOV_ID:AF1) → из переменной _COPY_NUMBER (для запуска из исходников).
-  * Настоящий секрет в код НЕ кладётся: берётся из переменной окружения
-    KADRIK_ACT_SECRET или из файла activation_secret.txt рядом с программой
-    (этот файл в .gitignore). На сайте (api/.env) строка должна быть та же.
+Как у «Записи экрана»:
+  * Демо работает 3 дня без ограничений.
+  * После покупки демо снимается ОНЛАЙН: программа спрашивает сайт
+    /api/check.php?instance=<номер копии> → {"licensed": true/false}.
+    Когда оплата прошла, номер копии попадает в licensed.txt на сайте.
+  * Мягкий режим: нет связи — работаем по последнему ответу; один раз получив
+    licensed=true — больше не блокируемся.
+  * Номер копии — из имени файла (Kadrik_AF7.exe) → из «хвоста» .exe
+    (метка MAMONOV_ID:AF7) → из _COPY_NUMBER (для запуска из исходников).
 Зависимости: только стандартные библиотеки Python.
 """
 
 import os
+import re
 import sys
+import json
 import time
-import hmac
-import base64
-import hashlib
 from pathlib import Path
+from urllib.request import urlopen, Request
 
 # Сколько дней работает демо
 TRIAL_DAYS = 3
 
-# Буква-код программы (как AE у «Записи экрана»). Задаётся при запуске из
-# исходников. У собранного exe номер берётся из имени файла / хвоста exe.
+# Сайт, где проверяется покупка
+SITE_URL = "https://evgeniymamonov.com"
+
+# Номер копии для запуска из исходников (у собранного exe берётся автоматически)
 _COPY_NUMBER = ""
 
-# Запасной секрет только для отладки. НА ПРОДАЖЕ замените его своим
-# длинным случайным секретом через activation_secret.txt / переменную окружения.
-_FALLBACK_SECRET = "KADRIK-DEMO-SECRET-CHANGE-ME"
-
-
-def _app_dir():
-    """Папка, где лежит программа (exe или исходник)."""
-    try:
-        if getattr(sys, "frozen", False):
-            return Path(sys.executable).parent
-        return Path(__file__).resolve().parent
-    except Exception:
-        return Path.cwd()
-
-
-def _secret():
-    """Секрет для ключей: переменная окружения → файл рядом → запасной."""
-    env = os.environ.get("KADRIK_ACT_SECRET", "").strip()
-    if env:
-        return env
-    try:
-        f = _app_dir() / "activation_secret.txt"
-        if f.exists():
-            s = f.read_text(encoding="utf-8").strip()
-            if s:
-                return s
-    except Exception:
-        pass
-    return _FALLBACK_SECRET
+_COPY_RE = re.compile(r"^[A-Z]{2}[0-9]+$")
 
 
 def _tail_id(exe):
@@ -75,7 +50,7 @@ def _tail_id(exe):
 
 
 def copy_number():
-    """Номер копии: имя файла → хвост exe → _COPY_NUMBER."""
+    """Номер копии вида AF7: имя файла → хвост exe → _COPY_NUMBER."""
     if _COPY_NUMBER:
         return _COPY_NUMBER.upper()
     try:
@@ -83,33 +58,32 @@ def copy_number():
             exe = sys.executable
             stem = Path(exe).stem
             if "_" in stem:
-                tail = stem.rsplit("_", 1)[1]
-                if tail and tail.isalnum():
-                    return tail.upper()
-            t = _tail_id(exe)
-            if t:
-                return t.upper()
+                tail = stem.rsplit("_", 1)[1].upper()
+                if _COPY_RE.match(tail):
+                    return tail
+            t = (_tail_id(exe) or "").upper()
+            if _COPY_RE.match(t):
+                return t
     except Exception:
         pass
     return ""
 
 
-def expected_key(cn=None):
-    """Ключ активации для номера копии (формат XXXX-XXXX-XXXX-XXXX)."""
-    if cn is None:
-        cn = copy_number()
-    msg = (cn or "NOID").encode("utf-8")
-    dig = hmac.new(_secret().encode("utf-8"), msg, hashlib.sha256).digest()
-    code = base64.b32encode(dig).decode("ascii").rstrip("=")[:16]
-    return "-".join(code[i:i + 4] for i in range(0, 16, 4))
-
-
-def check_key(key):
-    """Проверяет введённый ключ."""
-    k = (key or "").strip().upper().replace(" ", "")
-    if not k:
-        return False
-    return hmac.compare_digest(k, expected_key())
+def check_online(copy=None, timeout=6):
+    """Спрашивает сайт, снята ли демо с этой копии.
+    Возвращает True / False / None (нет связи или нет номера)."""
+    if copy is None:
+        copy = copy_number()
+    if not _COPY_RE.match(copy or ""):
+        return None
+    url = SITE_URL + "/api/check.php?instance=" + copy
+    try:
+        req = Request(url, headers={"User-Agent": "Kadrik"})
+        with urlopen(req, timeout=timeout) as r:
+            obj = json.loads(r.read().decode("utf-8", "ignore") or "{}")
+        return bool(obj.get("licensed"))
+    except Exception:
+        return None
 
 
 def _state_file(base):
@@ -144,15 +118,22 @@ def _save(base, data):
         pass
 
 
+def mark_licensed(base):
+    """Запоминает, что копия куплена (больше не блокируем)."""
+    st = _load(base)
+    st["lic"] = "1"
+    _save(base, st)
+
+
 def status(base):
-    """Состояние лицензии.
+    """Состояние лицензии по местным данным (без сети).
     Возвращает (state, days_left):
-      'activated' — куплена;
+      'activated' — куплена (запомнено);
       'trial'     — демо, осталось days_left дней;
       'expired'   — демо закончилось.
     """
     st = _load(base)
-    if st.get("act") == "1":
+    if st.get("lic") == "1":
         return "activated", 0
     now = int(time.time())
     try:
@@ -163,7 +144,7 @@ def status(base):
         first = now
         st["first"] = str(first)
         _save(base, st)
-    # Защита от перевода часов назад: если видим более позднюю «последнюю» дату — берём её.
+    # Защита от перевода часов назад: берём самую позднюю виденную дату.
     try:
         seen = int(st.get("seen", "0"))
     except Exception:
@@ -176,14 +157,3 @@ def status(base):
     if left > 0:
         return "trial", int(left)
     return "expired", 0
-
-
-def activate(base, key):
-    """Проверяет ключ и, если верный, сохраняет активацию."""
-    if check_key(key):
-        st = _load(base)
-        st["act"] = "1"
-        st["key"] = (key or "").strip().upper().replace(" ", "")
-        _save(base, st)
-        return True
-    return False
