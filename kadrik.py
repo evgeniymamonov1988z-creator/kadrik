@@ -286,6 +286,12 @@ def extract_frames(video_path, output_dir, cfg, log_fn=None):
 
     ext = fmt if fmt in ("png", "jpg", "jpeg") else "png"
 
+    # Имена файлов делаем уникальными: имя видео + время нарезки,
+    # чтобы кадры от разных видео (и повторных нарезок) не затирали друг друга.
+    import re as _re
+    safe = _re.sub(r'[\\/:*?"<>|]+', "_", video_path.stem).strip() or "video"
+    prefix = f"{safe}_{time.strftime('%H%M%S')}"
+
     scene_cap = int(cfg.get("scene_cap", 100) or 100)
     keep = int(cfg.get("keep_sharpest", 20) or 20)
     duration = _video_duration(video_path)
@@ -294,21 +300,15 @@ def extract_frames(video_path, output_dir, cfg, log_fn=None):
     import shutil as _sh
 
     def _clear_old():
-        for old in output_dir.glob(f"frame_*.{ext}"):
-            try:
-                old.unlink()
-            except Exception:
-                pass
+        # Ничего не удаляем — все прежние кадры сохраняются.
+        pass
 
     def _save_ordered(items):
         """items: список (время, путь) — сохраняем по порядку времени."""
-        _clear_old()
         items = sorted(items, key=lambda x: x[0])
         for i, (_t, p) in enumerate(items, 1):
-            dst = output_dir / f"frame_{i:04d}.{ext}"
+            dst = output_dir / f"{prefix}_{i:04d}.{ext}"
             try:
-                if dst.exists():
-                    dst.unlink()
                 Path(p).replace(dst)
             except Exception:
                 pass
@@ -361,12 +361,11 @@ def extract_frames(video_path, output_dir, cfg, log_fn=None):
     # Ровно keep кадров, равномерно по всему видео.
     if log_fn:
         log_fn(T("cutting"))
-    pattern = output_dir / f"frame_%04d.{ext}"
+    pattern = output_dir / f"{prefix}_%04d.{ext}"
     if duration:
         use_fps = min(keep / duration, 30.0)
     else:
         use_fps = cfg.get("fps", 1)
-    _clear_old()
     cmd = [FFMPEG, "-i", str(video_path), "-vf", f"fps={use_fps}"]
     if ext in ("jpg", "jpeg"):
         cmd += ["-q:v", str(max(1, min(31, int(31 - quality * 30 / 100))))]
@@ -380,7 +379,7 @@ def extract_frames(video_path, output_dir, cfg, log_fn=None):
             log_fn(T("err_ffmpeg"))
         raise RuntimeError(result.stderr[:300])
 
-    files = sorted(output_dir.glob(f"frame_*.{ext}"))
+    files = sorted(output_dir.glob(f"{prefix}_*.{ext}"))
     if log_fn:
         log_fn(T("done", n=len(files)))
     return output_dir
