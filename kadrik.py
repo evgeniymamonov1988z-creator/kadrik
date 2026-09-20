@@ -278,9 +278,9 @@ def extract_frames(video_path, output_dir, cfg, log_fn=None):
     if not video_path.exists():
         raise FileNotFoundError(video_path)
 
-    # Кадры складываем на Рабочий стол: Mamonov/kadrik/<имя_видео> (папки создаются сами).
+    # Кадры складываем прямо в папку на Рабочем столе: Mamonov/kadrik (папки создаются сами).
     if not output_dir:
-        output_dir = BASE_DIR / video_path.stem
+        output_dir = BASE_DIR
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
