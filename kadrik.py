@@ -138,10 +138,24 @@ REPO_BRANCH = "main"
 
 # Настройки по умолчанию (UI убран, берём как есть)
 CFG = {
-    "fps": 1,          # кадров в секунду (1 = 1 фото каждую секунду)
+    "fps": 1,          # запасная частота, если не удалось узнать длину видео
     "format": "png",   # png / jpg
     "quality": 95,     # качество jpg (1-100), для png не используется
+    "max_frames": 100, # потолок: не больше стольки кадров с одного видео
 }
+
+
+def _video_duration(video_path):
+    """Длительность видео в секундах через ffprobe. None — если не узнали."""
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(video_path)],
+            capture_output=True, text=True, timeout=30)
+        d = float((r.stdout or "").strip())
+        return d if d > 0 else None
+    except Exception:
+        return None
 
 
 def extract_frames(video_path, output_dir, cfg, log_fn=None):
@@ -163,11 +177,25 @@ def extract_frames(video_path, output_dir, cfg, log_fn=None):
     ext = fmt if fmt in ("png", "jpg", "jpeg") else "png"
     pattern = output_dir / f"frame_%04d.{ext}"
 
-    cmd = ["ffmpeg", "-i", str(video_path), "-vf", f"fps={fps}"]
+    # Потолок кадров: равномерно раскидываем не больше max_frames кадров по всему видео.
+    max_frames = int(cfg.get("max_frames", 0) or 0)
+    duration = _video_duration(video_path) if max_frames > 0 else None
+    if duration and max_frames > 0:
+        # частота = сколько кадров в секунду, чтобы за всё видео вышло ~max_frames
+        use_fps = max_frames / duration
+        # не выше 30/с — чтобы не плодить одинаковые кадры на коротких роликах
+        use_fps = min(use_fps, 30.0)
+    else:
+        use_fps = fps
+
+    cmd = ["ffmpeg", "-i", str(video_path), "-vf", f"fps={use_fps}"]
     if ext in ("jpg", "jpeg"):
         cmd += ["-q:v", str(max(1, min(31, int(31 - quality * 30 / 100))))]
     else:
         cmd += ["-compression_level", "5"]
+    # Жёсткий потолок: ни при каких условиях не больше max_frames файлов
+    if max_frames > 0:
+        cmd += ["-frames:v", str(max_frames)]
     cmd += [str(pattern), "-y"]
 
     if log_fn:
