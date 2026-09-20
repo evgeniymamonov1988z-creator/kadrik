@@ -49,6 +49,13 @@ try:
 except ImportError:
     HAS_UPDATER = False
 
+# Лицензия / демо (единая модель бренда: 3 дня демо, потом ключ активации)
+try:
+    import license as lic
+    HAS_LIC = True
+except Exception:
+    HAS_LIC = False
+
 # Pillow — нужен только для режима «самые чёткие кадры» (оценка резкости)
 try:
     from PIL import Image, ImageFilter, ImageStat
@@ -145,6 +152,15 @@ STRINGS = {
         "ready":    "Готово к работе",
         "no_ff":    "Нет движка видео.\nНужен интернет",
         "old_ver":  "Старая версия: нет авто-загрузки",
+        # Демо / активация
+        "trial_left":  "Демо: осталось {n} дн.",
+        "demo_over":   "Демо закончилось",
+        "demo_hint":   "Демо закончилось.\nВведите ключ.",
+        "buy_at":      "Купить: evgeniymamonov.com",
+        "key_hint":    "Ключ активации",
+        "activate":    "Активировать",
+        "bad_key":     "Неверный ключ",
+        "act_ok":      "Активировано, спасибо!",
     },
     "en": {
         "app":        "Kadrik",
@@ -175,6 +191,15 @@ STRINGS = {
         "ready":    "Ready",
         "no_ff":    "No video engine.\nInternet needed",
         "old_ver":  "Old version: no auto-download",
+        # Demo / activation
+        "trial_left":  "Demo: {n} Days Left",
+        "demo_over":   "Demo Expired",
+        "demo_hint":   "Demo Expired.\nEnter Key.",
+        "buy_at":      "Buy: evgeniymamonov.com",
+        "key_hint":    "Activation Key",
+        "activate":    "Activate",
+        "bad_key":     "Wrong Key",
+        "act_ok":      "Activated, Thank You!",
     },
 }
 
@@ -216,6 +241,9 @@ BASE_DIR = _desktop_dir() / "Mamonov" / "kadrik"
 # Репозиторий для авто-обновления (SourceCraft, HTTPS — чтение без ключей/паролей)
 REPO_URL = "https://git.sourcecraft.dev/evgeniymamonov1988/kadrik.git"
 REPO_BRANCH = "main"
+
+# Сайт для покупки полной версии
+SITE_URL = "https://evgeniymamonov.com"
 
 # Настройки по умолчанию (умный режим)
 CFG = {
@@ -422,6 +450,8 @@ class App:
     def __init__(self):
         self.cfg = dict(CFG)
         self.ready = False  # готов ли движок нарезки
+        self.lic_state = "activated"  # activated / trial / expired
+        self.lic_left = 0
 
         # Перетаскивание нужно подключить ДО создания окна — иначе оно не заработает.
         # Если библиотеки нет — быстро догружаем её и подключаем сразу.
@@ -446,6 +476,9 @@ class App:
         # Сворачивается только по кнопке «_» (штатное поведение окна)
 
         self._build_ui()
+
+        # Проверяем демо/лицензию и при необходимости показываем окно активации
+        self._check_license()
 
         if HAS_DND:
             self.drop_area.drop_target_register(DND_FILES)
@@ -550,6 +583,11 @@ class App:
             self._process(f)
 
     def _process(self, video_path):
+        if self.lic_state == "expired":
+            # Демо закончилось — нарезка заблокирована, предлагаем активацию
+            self._log(T("demo_over"))
+            self._show_activation()
+            return
         if not self.ready:
             # движок ещё готовится/не скачался
             if HAS_SETUP and not tools_setup.find_tools()[0]:
@@ -583,6 +621,84 @@ class App:
         self.root.title(T("copied"))
         self.root.after(1000, lambda: self.root.title(T("app")))
         return "break"
+
+    # -------- Демо / активация --------
+    def _check_license(self):
+        """Определяет состояние демо и реагирует."""
+        if not HAS_LIC:
+            self.lic_state = "activated"
+            return
+        try:
+            state, left = lic.status(BASE_DIR)
+        except Exception:
+            state, left = "activated", 0
+        self.lic_state = state
+        self.lic_left = left
+        if state == "trial":
+            self._log(T("trial_left", n=left))
+        elif state == "expired":
+            self._log(T("demo_over"))
+            # Показываем окно активации сразу после открытия
+            self.root.after(400, self._show_activation)
+
+    def _show_activation(self):
+        """Окно: демо закончилось — ссылка на покупку и поле для ключа."""
+        if getattr(self, "_act_win", None) and tk.Toplevel.winfo_exists(self._act_win):
+            self._act_win.lift()
+            return
+        win = tk.Toplevel(self.root)
+        self._act_win = win
+        win.title(T("demo_over"))
+        win.configure(bg=self.BG)
+        win.resizable(False, False)
+        win.attributes("-topmost", True)
+        win.geometry("260x210")
+
+        tk.Label(win, text=T("demo_over"), bg=self.BG, fg=self.ACCENT,
+                 font=("Helvetica", 12, "bold")).pack(pady=(12, 4))
+
+        # Ссылка на покупку (клик открывает сайт)
+        link = tk.Label(win, text=T("buy_at"), bg=self.BG, fg="#9fbfdf",
+                        font=("Helvetica", 9, "underline"), cursor="hand2")
+        link.pack(pady=(0, 8))
+        link.bind("<Button-1>", lambda e: self._open_site())
+
+        tk.Label(win, text=T("key_hint"), bg=self.BG, fg=self.FG,
+                 font=("Helvetica", 9)).pack()
+        entry = tk.Entry(win, width=22, justify="center",
+                         bg="#1e1e1e", fg=self.FG, insertbackground=self.FG,
+                         relief="flat")
+        entry.pack(pady=(2, 8), ipady=3)
+        entry.focus_set()
+
+        msg = tk.Label(win, text="", bg=self.BG, fg="#e06c75",
+                       font=("Helvetica", 8))
+        msg.pack()
+
+        def _try_activate(_e=None):
+            key = entry.get()
+            try:
+                ok = HAS_LIC and lic.activate(BASE_DIR, key)
+            except Exception:
+                ok = False
+            if ok:
+                self.lic_state = "activated"
+                self._log(T("act_ok"))
+                win.destroy()
+            else:
+                msg.config(text=T("bad_key"))
+
+        entry.bind("<Return>", _try_activate)
+        tk.Button(win, text=T("activate"), command=_try_activate,
+                  bg=self.ACCENT, fg="#000000", relief="flat",
+                  activebackground="#7cc0f5").pack(pady=(4, 10), ipadx=8)
+
+    def _open_site(self):
+        try:
+            import webbrowser
+            webbrowser.open(SITE_URL)
+        except Exception:
+            self._log(T("buy_at"))
 
 
 if __name__ == "__main__":
