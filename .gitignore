@@ -12,6 +12,9 @@ settings.json
 # Результаты нарезки
 *_frames/
 
+# Скачанный движок ffmpeg (догружается при первом запуске)
+bin/
+
 # ОС
 .DS_Store
 Thumbs.db

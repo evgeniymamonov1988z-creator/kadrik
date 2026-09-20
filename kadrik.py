@@ -37,6 +37,18 @@ except ImportError:
     HAS_PIL = False
 
 
+# Модуль авто-загрузки инструментов (ffmpeg и пр.)
+try:
+    import tools_setup
+    HAS_SETUP = True
+except ImportError:
+    HAS_SETUP = False
+
+# Пути к движку нарезки. По умолчанию — системные; при запуске могут смениться на скачанные.
+FFMPEG = "ffmpeg"
+FFPROBE = "ffprobe"
+
+
 def detect_lang():
     """Русский язык на российской Windows, иначе английский."""
     # Windows: язык интерфейса системы
@@ -89,6 +101,10 @@ STRINGS = {
         "e_net":    "Нет интернета",
         "e_fail":   "Не вышло обновить",
         "copied":   "✓ Скопировано",
+        # Первый запуск — загрузка движка
+        "prep":     "Первый запуск: готовлю программу…",
+        "ready":    "Готово к работе",
+        "no_ff":    "Нет движка видео.\nНужен интернет",
     },
     "en": {
         "app":        "Kadrik",
@@ -115,6 +131,9 @@ STRINGS = {
         "e_net":    "No internet",
         "e_fail":   "Update failed",
         "copied":   "✓ Copied",
+        "prep":     "First run: preparing app…",
+        "ready":    "Ready",
+        "no_ff":    "No video engine.\nInternet needed",
     },
 }
 
@@ -171,7 +190,7 @@ def _detect_scene_times(video_path, thresh):
     """Секунды, где меняется сцена (через ffmpeg)."""
     times = []
     try:
-        cmd = ["ffmpeg", "-i", str(video_path), "-vf",
+        cmd = [FFMPEG, "-i", str(video_path), "-vf",
                f"select='gt(scene,{thresh})',metadata=print",
                "-an", "-f", "null", "-"]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
@@ -203,7 +222,7 @@ def _sharpness(path, Image, ImageFilter, ImageStat):
 
 def _extract_at(video_path, t, dst, ext, quality):
     """Достаёт один кадр на секунде t."""
-    cmd = ["ffmpeg", "-ss", f"{t:.3f}", "-i", str(video_path), "-frames:v", "1"]
+    cmd = [FFMPEG, "-ss", f"{t:.3f}", "-i", str(video_path), "-frames:v", "1"]
     if ext in ("jpg", "jpeg"):
         cmd += ["-q:v", str(max(1, min(31, int(31 - quality * 30 / 100))))]
     cmd += [str(dst), "-y"]
@@ -218,7 +237,7 @@ def _video_duration(video_path):
     """Длительность видео в секундах через ffprobe. None — если не узнали."""
     try:
         r = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+            [FFPROBE, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", str(video_path)],
             capture_output=True, text=True, timeout=30)
         d = float((r.stdout or "").strip())
@@ -320,7 +339,7 @@ def extract_frames(video_path, output_dir, cfg, log_fn=None):
     else:
         use_fps = cfg.get("fps", 1)
     _clear_old()
-    cmd = ["ffmpeg", "-i", str(video_path), "-vf", f"fps={use_fps}"]
+    cmd = [FFMPEG, "-i", str(video_path), "-vf", f"fps={use_fps}"]
     if ext in ("jpg", "jpeg"):
         cmd += ["-q:v", str(max(1, min(31, int(31 - quality * 30 / 100))))]
     else:
@@ -346,6 +365,7 @@ class App:
 
     def __init__(self):
         self.cfg = dict(CFG)
+        self.ready = False  # готов ли движок нарезки
 
         self.root = TkinterDnD.Tk() if HAS_DND else tk.Tk()
         self.root.title(T("app"))
@@ -363,7 +383,36 @@ class App:
             self.drop_area.drop_target_register(DND_FILES)
             self.drop_area.dnd_bind("<<Drop>>", self._on_drop)
 
+        # При первом запуске догружаем движок (ffmpeg) в фоне
+        threading.Thread(target=self._prepare, daemon=True).start()
+
         self.root.mainloop()
+
+    def _prepare(self):
+        """Проверяет/догружает ffmpeg и Pillow. Запускается в фоне."""
+        global FFMPEG, FFPROBE, HAS_PIL
+        if not HAS_SETUP:
+            # Нет модуля загрузки — надеемся на системный ffmpeg
+            self.ready = True
+            self._log(T("wait"))
+            return
+        # Уже есть?
+        ffm, ffp = tools_setup.find_tools()
+        if not (ffm and ffp):
+            self._log(T("prep"))
+            ffm, ffp = tools_setup.ensure_ffmpeg(log_fn=self._log)
+        if ffm and ffp:
+            FFMPEG, FFPROBE = ffm, ffp
+            # догружаем оценку чёткости (Pillow), если её нет
+            if not HAS_PIL:
+                HAS_PIL = tools_setup.ensure_pillow(log_fn=self._log)
+            self.ready = True
+            self._log(T("ready"))
+            self._log(T("wait"))
+        else:
+            # не смогли найти/скачать ffmpeg
+            self.ready = False
+            self._log("❌ " + T("no_ff"))
 
     def _build_ui(self):
         tk.Label(
@@ -433,6 +482,11 @@ class App:
             self._process(f)
 
     def _process(self, video_path):
+        if not self.ready:
+            # движок ещё готовится/не скачался
+            if HAS_SETUP and not tools_setup.find_tools()[0]:
+                self._log(T("prep"))
+                return
         def task():
             try:
                 extract_frames(video_path, None, self.cfg, log_fn=self._log)
