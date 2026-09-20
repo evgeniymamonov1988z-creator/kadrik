@@ -84,6 +84,13 @@ def detect_lang():
 
 LANG = detect_lang()
 
+# Передаём язык модулю загрузки, чтобы его сообщения в журнале были на нужном языке.
+if HAS_SETUP:
+    try:
+        tools_setup.set_lang(LANG)
+    except Exception:
+        pass
+
 # Строки интерфейса (везде с большой буквы)
 STRINGS = {
     "ru": {
@@ -117,6 +124,7 @@ STRINGS = {
         "prep":     "Первый запуск: готовлю программу…",
         "ready":    "Готово к работе",
         "no_ff":    "Нет движка видео.\nНужен интернет",
+        "old_ver":  "Старая версия: нет авто-загрузки",
     },
     "en": {
         "app":        "Kadrik",
@@ -146,6 +154,7 @@ STRINGS = {
         "prep":     "First run: preparing app…",
         "ready":    "Ready",
         "no_ff":    "No video engine.\nInternet needed",
+        "old_ver":  "Old version: no auto-download",
     },
 }
 
@@ -438,7 +447,7 @@ class App:
                 self._log(T("wait"))
             else:
                 self.ready = False
-                self._log("❗ Старая версия: нет авто-загрузки")
+                self._log("❗ " + T("old_ver"))
             return
         # Уже есть?
         ffm, ffp = tools_setup.find_tools()

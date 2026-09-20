@@ -27,6 +27,53 @@ def _desktop_dir():
 
 BIN_DIR = _desktop_dir() / "Mamonov" / "kadrik" / "bin"
 
+# --- Язык сообщений (русский / английский) ---
+def _detect_lang():
+    try:
+        import ctypes
+        lang_id = ctypes.windll.kernel32.GetUserDefaultUILanguage()
+        return "ru" if (lang_id & 0x3FF) == 0x19 else "en"
+    except Exception:
+        pass
+    try:
+        import locale
+        loc = (locale.getdefaultlocale()[0] or "").lower()
+    except Exception:
+        loc = ""
+    env = (os.environ.get("LANG", "") + os.environ.get("LC_ALL", "")).lower()
+    return "ru" if (loc.startswith("ru") or env.startswith("ru")) else "en"
+
+LANG = _detect_lang()
+
+_MSG = {
+    "ru": {
+        "dl":      "Скачиваю движок",
+        "mb":      "МБ",
+        "pillow":  "Готовлю оценку чёткости…",
+        "dnd":     "Готовлю перетаскивание…",
+        "install": "Ставлю {pip}…",
+    },
+    "en": {
+        "dl":      "Downloading engine",
+        "mb":      "MB",
+        "pillow":  "Preparing sharpness check…",
+        "dnd":     "Preparing drag-and-drop…",
+        "install": "Installing {pip}…",
+    },
+}
+
+
+def set_lang(lang):
+    """Задать язык сообщений (вызывает основная программа)."""
+    global LANG
+    if lang in _MSG:
+        LANG = lang
+
+
+def _m(key, **kw):
+    s = _MSG.get(LANG, _MSG["en"]).get(key, key)
+    return s.format(**kw) if kw else s
+
 # Готовая статичная сборка ffmpeg для Windows 64-bit (ffmpeg.exe + ffprobe.exe)
 FFMPEG_WIN_URL = (
     "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
@@ -80,7 +127,7 @@ def _download(url, dst, log_fn=None, label=""):
                     pct = int(got * 100 / total)
                     if pct != last_pct and pct % 5 == 0:
                         last_pct = pct
-                        log_fn(f"{label} {pct}% ({total/1048576:.0f} МБ)")
+                        log_fn(f"{label} {pct}% ({total/1048576:.0f} {_m('mb')})")
 
 
 def ensure_ffmpeg(log_fn=None):
@@ -96,8 +143,8 @@ def ensure_ffmpeg(log_fn=None):
     zip_path = tmpdir / "ffmpeg.zip"
     try:
         if log_fn:
-            log_fn("Скачиваю движок…")
-        _download(FFMPEG_WIN_URL, zip_path, log_fn=log_fn, label="Скачиваю движок")
+            log_fn(_m("dl") + "…")
+        _download(FFMPEG_WIN_URL, zip_path, log_fn=log_fn, label=_m("dl"))
         with zipfile.ZipFile(zip_path) as z:
             for member in z.namelist():
                 base = os.path.basename(member)
@@ -122,7 +169,7 @@ def ensure_pip_package(import_name, pip_name, log_fn=None, label=None):
         pass
     try:
         if log_fn:
-            log_fn(label or f"Ставлю {pip_name}…")
+            log_fn(label or _m("install", pip=pip_name))
         bin_dir()
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "--quiet", "--upgrade",
@@ -140,9 +187,9 @@ def ensure_pip_package(import_name, pip_name, log_fn=None, label=None):
 
 def ensure_pillow(log_fn=None):
     return ensure_pip_package("PIL", "Pillow", log_fn=log_fn,
-                              label="Готовлю оценку чёткости…")
+                              label=_m("pillow"))
 
 
 def ensure_dnd(log_fn=None):
     return ensure_pip_package("tkinterdnd2", "tkinterdnd2", log_fn=log_fn,
-                              label="Готовлю перетаскивание…")
+                              label=_m("dnd"))
