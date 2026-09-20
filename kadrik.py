@@ -64,6 +64,23 @@ FFPROBE = "ffprobe"
 _NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}
 
 
+def _hide_console():
+    """Прячет чёрное окно консоли, если оно появилось за программой (только Windows)."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, 0)  # 0 = SW_HIDE
+    except Exception:
+        pass
+
+
+# Прячем консоль как можно раньше — ещё до открытия окна.
+_hide_console()
+
+
 def detect_lang():
     """Русский язык на российской Windows, иначе английский."""
     # Windows: язык интерфейса системы
