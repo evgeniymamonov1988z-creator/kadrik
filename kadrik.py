@@ -420,7 +420,7 @@ class App:
 
         self.root = TkinterDnD.Tk() if HAS_DND else tk.Tk()
         self.root.title(T("app"))
-        self.root.geometry("220x340")
+        self.root.geometry("220x290")
         self.root.configure(bg=self.BG)
         self.root.resizable(False, False)
 
@@ -500,7 +500,7 @@ class App:
         scroll.pack(side="right", fill="y")
 
         self.log_box = tk.Text(
-            log_wrap, height=5, wrap="word",
+            log_wrap, height=2, wrap="word",
             bg="#1e1e1e", fg="#9fbfdf", font=("Helvetica", 8),
             relief="flat", bd=0, padx=4, pady=3,
             state="disabled", cursor="hand2",
