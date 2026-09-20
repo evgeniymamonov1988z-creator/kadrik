@@ -16,6 +16,10 @@
     licensed=true — больше не блокируемся.
   * Первый номер берётся из «хвоста» .exe (метка MAMONOV_ID:AF7) → из
     _COPY_NUMBER (для запуска из исходников) и сохраняется на компьютере.
+  * Если локальный файл с номером потерялся (переустановка Windows, чистка
+    папки) — программа спрашивает сервер по отпечатку компьютера
+    (recover.php) и получает обратно тот же номер, что был закреплён
+    раньше; номер не сбрасывается на новый.
 Зависимости: только стандартные библиотеки Python.
 """
 
@@ -88,10 +92,25 @@ def copy_for(base):
     saved = (st.get("copy", "") or "").upper()
     if _COPY_RE.match(saved):
         return saved
+    # Локального номера нет — либо это первый запуск, либо файл с номером
+    # потерялся (переустановка Windows, чистка папки). Спросим сервер:
+    # не закреплён ли за этим компьютером номер уже раньше?
+    mid = machine_id()
+    rec, reached = recover_copy(mid)
+    if _COPY_RE.match(rec or ""):
+        st["copy"] = rec
+        _save(base, st)
+        return rec
+    # Сервер не знает номера для этого компьютера — берём «свежий» из файла.
     fresh = copy_number()
     if _COPY_RE.match(fresh or ""):
-        st["copy"] = fresh
-        _save(base, st)
+        # Закрепляем как постоянный, ТОЛЬКО если сервер точно ответил
+        # (значит это правда новый компьютер). Если связи не было —
+        # вернём номер на этот сеанс, но не закрепляем: как появится
+        # интернет, восстановим настоящий номер компьютера.
+        if reached:
+            st["copy"] = fresh
+            _save(base, st)
         return fresh
     return ""
 
@@ -152,6 +171,29 @@ def check_online(copy=None, machine=None, base=None, timeout=6):
         return bool(obj.get("licensed"))
     except Exception:
         return None
+
+
+def recover_copy(machine=None, timeout=6):
+    """Спрашивает сайт, какой номер копии уже закреплён за этим
+    компьютером (по его отпечатку). Нужно, чтобы номер не
+    сбрасывался после переустановки Windows или чистки папки.
+
+    Возвращает пару (copy, reached):
+      copy    — номер копии или "" (если за компьютером ещё ничего
+                не закреплено);
+      reached — удалось ли вообще достучаться до сервера.
+    """
+    if machine is None:
+        machine = machine_id()
+    url = SITE_URL + "/api/recover.php?" + urlencode({"machine": machine})
+    try:
+        req = Request(url, headers={"User-Agent": "Kadrik"})
+        with urlopen(req, timeout=timeout) as r:
+            obj = json.loads(r.read().decode("utf-8", "ignore") or "{}")
+        copy = (obj.get("copy", "") or "").upper()
+        return (copy if _COPY_RE.match(copy) else ""), True
+    except Exception:
+        return "", False
 
 
 def _state_file(base):
