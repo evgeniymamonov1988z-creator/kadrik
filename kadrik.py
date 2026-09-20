@@ -313,6 +313,12 @@ def extract_frames(video_path, output_dir, cfg, log_fn=None):
             log_fn(T("scenes"))
         scene_times = _detect_scene_times(video_path, thresh)
         cand = [0.0] + [t for t in scene_times if t > 0.5]
+        # Всегда добавляем равномерную сетку кадров по всему видео —
+        # чтобы был хороший запас даже когда смен сцен нет (статичное видео).
+        pool = min(max(keep * 3, 40), scene_cap)
+        if pool > 1:
+            step = duration / (pool + 1)
+            cand += [round(step * i, 2) for i in range(1, pool + 1)]
         cand = sorted(set(round(x, 2) for x in cand))
         # если сцен больше лимита — равномерно прореживаем до scene_cap
         if len(cand) > scene_cap:
