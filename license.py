@@ -1,15 +1,18 @@
 """
 Лицензия / демо для «Кадрика» — единая модель бренда MAMONOV.
 
-Как у «Записи экрана»:
+Как это работает:
   * Демо работает 3 дня без ограничений.
-  * После покупки демо снимается ОНЛАЙН: программа спрашивает сайт
-    /api/check.php?instance=<номер копии> → {"licensed": true/false}.
-    Когда оплата прошла, номер копии попадает в licensed.txt на сайте.
+  * Номер копии (AF7) привязан К КОНКРЕТНОМУ КОМПЬЮТЕРУ: программа
+    считает устойчивый идентификатор машины и отправляет его вместе с номером:
+    /api/check.php?instance=<номер>&machine=<ид компьютера> → {"licensed": true/false}.
+  * Сайт запоминает пару «номер ↔ компьютер» при первом же обращении,
+    поэтому к моменту покупки уже знает, на каком компьютере живёт копия.
+    Оплата снимает демо только для этой пары номер+компьютер.
   * Мягкий режим: нет связи — работаем по последнему ответу; один раз получив
     licensed=true — больше не блокируемся.
-  * Номер копии — из имени файла (Kadrik_AF7.exe) → из «хвоста» .exe
-    (метка MAMONOV_ID:AF7) → из _COPY_NUMBER (для запуска из исходников).
+  * Номер копии — из «хвоста» .exe (метка MAMONOV_ID:AF7) → из
+    _COPY_NUMBER (для запуска из исходников).
 Зависимости: только стандартные библиотеки Python.
 """
 
@@ -18,7 +21,11 @@ import re
 import sys
 import json
 import time
+import hashlib
+import platform
+import uuid
 from pathlib import Path
+from urllib.parse import urlencode
 from urllib.request import urlopen, Request
 
 # Сколько дней работает демо
@@ -50,18 +57,12 @@ def _tail_id(exe):
 
 
 def copy_number():
-    """Номер копии вида AF7: имя файла → хвост exe → _COPY_NUMBER."""
+    """Номер копии вида AF7: хвост exe → _COPY_NUMBER."""
     if _COPY_NUMBER:
         return _COPY_NUMBER.upper()
     try:
         if getattr(sys, "frozen", False):
-            exe = sys.executable
-            stem = Path(exe).stem
-            if "_" in stem:
-                tail = stem.rsplit("_", 1)[1].upper()
-                if _COPY_RE.match(tail):
-                    return tail
-            t = (_tail_id(exe) or "").upper()
+            t = (_tail_id(sys.executable) or "").upper()
             if _COPY_RE.match(t):
                 return t
     except Exception:
@@ -69,14 +70,55 @@ def copy_number():
     return ""
 
 
-def check_online(copy=None, timeout=6):
-    """Спрашивает сайт, снята ли демо с этой копии.
+def machine_id():
+    """Устойчивый идентификатор этого компьютера (короткий хеш).
+
+    На Windows берём MachineGuid из реестра (самый стабильный ид СИСТЕМЫ),
+    плюс имя компьютера. Запасной вариант — MAC-адрес. Возвращает
+    16 шестнадцатеричных символов в верхнем регистре — без личных данных.
+    """
+    parts = []
+    if os.name == "nt":
+        try:
+            import winreg
+            key = winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"SOFTWARE\Microsoft\Cryptography", 0,
+                winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
+            try:
+                guid, _ = winreg.QueryValueEx(key, "MachineGuid")
+            finally:
+                winreg.CloseKey(key)
+            if guid:
+                parts.append(str(guid))
+        except Exception:
+            pass
+    try:
+        node = platform.node()
+        if node:
+            parts.append(node)
+    except Exception:
+        pass
+    if not parts:
+        try:
+            parts.append(str(uuid.getnode()))
+        except Exception:
+            pass
+    raw = "|".join(p for p in parts if p) or "unknown"
+    return hashlib.sha256(raw.encode("utf-8", "ignore")).hexdigest()[:16].upper()
+
+
+def check_online(copy=None, machine=None, timeout=6):
+    """Спрашивает сайт, снята ли демо с этой копии НА ЭТОМ компьютере.
+    Передаёт номер копии и ид компьютера — сайт запоминает эту пару.
     Возвращает True / False / None (нет связи или нет номера)."""
     if copy is None:
         copy = copy_number()
     if not _COPY_RE.match(copy or ""):
         return None
-    url = SITE_URL + "/api/check.php?instance=" + copy
+    if machine is None:
+        machine = machine_id()
+    url = SITE_URL + "/api/check.php?" + urlencode({"instance": copy, "machine": machine})
     try:
         req = Request(url, headers={"User-Agent": "Kadrik"})
         with urlopen(req, timeout=timeout) as r:
