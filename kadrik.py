@@ -20,6 +20,23 @@ try:
 except ImportError:
     HAS_DND = False
 
+# Модуль авто-обновления (взят из mamonov-screen-recorder)
+try:
+    from updater import Updater
+    HAS_UPDATER = True
+except ImportError:
+    HAS_UPDATER = False
+
+
+# ── Куда складываем кадры ────────────────────────────────────────────────
+# Папка Mamonov в домашнем каталоге пользователя, внутри — подпапка kadrik.
+# Если их нет — создаются автоматически при добавлении видео.
+BASE_DIR = Path.home() / "Mamonov" / "kadrik"
+
+# Репозиторий для авто-обновления (SourceCraft)
+REPO_URL = "ssh://git@ssh.sourcecraft.dev/evgeniymamonov1988/kadrik.git"
+REPO_BRANCH = "main"
+
 
 # ── Настройки по умолчанию ──────────────────────────────────────────────
 CONFIG_PATH = Path(__file__).parent / "settings.json"
@@ -54,9 +71,10 @@ def extract_frames(video_path, output_dir, cfg, log_fn=None):
     if not video_path.exists():
         raise FileNotFoundError(video_path)
 
-    # Папка: <имя_видео>_frames рядом с видео
+    # Кадры складываем в Mamonov/kadrik/<имя_видео>_frames.
+    # Папки Mamonov и kadrik создаются автоматически, если их ещё нет.
     if not output_dir:
-        output_dir = video_path.parent / f"{video_path.stem}_frames"
+        output_dir = BASE_DIR / f"{video_path.stem}_frames"
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -109,9 +127,14 @@ class App:
             self.root = tk.Tk()
 
         self.root.title("🎬 Кадрик")
-        self.root.geometry("380x300")
+        self.root.geometry("380x340")
         self.root.configure(bg=self.BG)
         self.root.resizable(False, False)
+
+        # Всегда поверх всех окон
+        self.root.attributes("-topmost", True)
+        # Не сворачивается: если окно свернули — тут же разворачиваем обратно
+        self.root.bind("<Unmap>", self._prevent_minimize)
 
         self._build_ui()
 
@@ -166,12 +189,22 @@ class App:
                         highlightthickness=0)
         fmt_menu.grid(row=0, column=3, padx=4)
 
-        # Кнопка «Сохранить настройки»
+        # Кнопки — сохранить настройки и обновить программу
+        bf = tk.Frame(self.root, bg=self.BG)
+        bf.pack(pady=(4, 2))
+
         tk.Button(
-            self.root, text="💾 Сохранить настройки", bg=self.ACCENT, fg="white",
+            bf, text="💾 Настройки", bg=self.ACCENT, fg="white",
             font=("Helvetica", 9, "bold"), relief="flat",
             command=self._save_settings
-        ).pack(pady=(4, 2))
+        ).pack(side="left", padx=4)
+
+        self.upd_btn = tk.Button(
+            bf, text="⬇️ Обновить", bg=self.ACCENT2, fg="white",
+            font=("Helvetica", 9, "bold"), relief="flat",
+            command=self._check_update
+        )
+        self.upd_btn.pack(side="left", padx=4)
 
         # Лог
         self.log_var = tk.StringVar(value="Жду видео…")
@@ -230,6 +263,29 @@ class App:
         self.cfg["format"] = self.fmt_var.get()
         save_config(self.cfg)
         self._log("⚙️ Настройки сохранены!")
+
+    # ── Авто-обновление ──────────────────────────────────────────────────
+    def _check_update(self):
+        if not HAS_UPDATER:
+            self._log("⚠️ Модуль обновления не найден (updater.py)")
+            return
+        self.upd_btn.config(state="disabled")
+        self._log("⬇️ Проверяю обновления…")
+
+        def task():
+            try:
+                upd = Updater(repo_url=REPO_URL, branch=REPO_BRANCH)
+                ok, msg = upd.update()
+                self._log(("✅ " if ok else "❌ ") + msg)
+                if ok and "up to date" not in msg.lower():
+                    # Перезапускаем, чтобы подхватить новую версию
+                    self.root.after(1200, upd.restart)
+            except Exception as exc:
+                self._log(f"❌ Ошибка обновления: {exc}")
+            finally:
+                self.root.after(0, lambda: self.upd_btn.config(state="normal"))
+
+        threading.Thread(target=task, daemon=True).start()
 
 
 # ── Точка входа ─────────────────────────────────────────────────────────
