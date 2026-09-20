@@ -17,11 +17,22 @@ from pathlib import Path
 
 # Модуль авто-загрузки инструментов (только стандартные библиотеки) — подключаем раньше всех,
 # чтобы сразу добавить папку bin/ в пути и грузить библиотеки оттуда.
+# Сначала гарантируем, что папка с этим файлом видна Python — иначе из другой папки модуль не найдётся.
+try:
+    if getattr(sys, "frozen", False):
+        _here = os.path.dirname(sys.executable)
+    else:
+        _here = os.path.dirname(os.path.abspath(__file__))
+    if _here and _here not in sys.path:
+        sys.path.insert(0, _here)
+except Exception:
+    pass
+
 try:
     import tools_setup
     tools_setup.add_to_path()
     HAS_SETUP = True
-except ImportError:
+except Exception:
     HAS_SETUP = False
 
 # Пытаемся подключить drag-and-drop
@@ -393,9 +404,14 @@ class App:
         """Проверяет/догружает ffmpeg и Pillow. Запускается в фоне."""
         global FFMPEG, FFPROBE, HAS_PIL
         if not HAS_SETUP:
-            # Нет модуля загрузки — надеемся на системный ffmpeg
-            self.ready = True
-            self._log(T("wait"))
+            # Нет модуля загрузки — пробуем системный ffmpeg
+            import shutil as _sh
+            if _sh.which("ffmpeg") and _sh.which("ffprobe"):
+                self.ready = True
+                self._log(T("wait"))
+            else:
+                self.ready = False
+                self._log("❗ Старая версия: нет авто-загрузки")
             return
         # Уже есть?
         ffm, ffp = tools_setup.find_tools()
