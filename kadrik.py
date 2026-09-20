@@ -176,8 +176,7 @@ class App:
 
         # Всегда поверх всех окон
         self.root.attributes("-topmost", True)
-        # Не сворачивается: если свернули — тут же разворачиваем обратно
-        self.root.bind("<Unmap>", self._prevent_minimize)
+        # Сворачивается только по кнопке «_» (штатное поведение окна)
 
         self._build_ui()
 
@@ -220,10 +219,6 @@ class App:
             bg=self.BG, fg="#888888", font=("Helvetica", 6),
             wraplength=118, justify="center"
         ).pack(pady=(0, 4))
-
-    def _prevent_minimize(self, event):
-        if event.widget is self.root and self.root.state() == "iconic":
-            self.root.after(1, self.root.deiconify)
 
     def _on_drop(self, event):
         raw = event.data
