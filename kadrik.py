@@ -7,6 +7,7 @@ Kadrik / Кадрик — видео → кадры (фото).
 
 import os
 import sys
+import time
 import locale
 import subprocess
 import threading
@@ -78,6 +79,7 @@ STRINGS = {
         "e_nogit":  "Нужен Git.\nСкачай: git-scm.com",
         "e_net":    "Нет интернета",
         "e_fail":   "Не вышло обновить",
+        "copied":   "✓ Скопировано",
     },
     "en": {
         "app":        "Kadrik",
@@ -101,6 +103,7 @@ STRINGS = {
         "e_nogit":  "Git required.\nGet it: git-scm.com",
         "e_net":    "No internet",
         "e_fail":   "Update failed",
+        "copied":   "✓ Copied",
     },
 }
 
@@ -192,7 +195,7 @@ class App:
 
         self.root = TkinterDnD.Tk() if HAS_DND else tk.Tk()
         self.root.title(T("app"))
-        self.root.geometry("220x260")
+        self.root.geometry("220x340")
         self.root.configure(bg=self.BG)
         self.root.resizable(False, False)
 
@@ -235,12 +238,27 @@ class App:
         )
         self.upd_btn.pack(pady=(10, 4))
 
-        self.log_var = tk.StringVar(value=T("wait"))
-        tk.Label(
-            self.root, textvariable=self.log_var,
-            bg=self.BG, fg="#888888", font=("Helvetica", 9),
-            wraplength=200, justify="center"
-        ).pack(pady=(0, 8))
+        # Журнал лога под кнопкой — клик мышкой копирует весь текст
+        log_wrap = tk.Frame(self.root, bg=self.BG)
+        log_wrap.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        scroll = tk.Scrollbar(log_wrap)
+        scroll.pack(side="right", fill="y")
+
+        self.log_box = tk.Text(
+            log_wrap, height=5, wrap="word",
+            bg="#1e1e1e", fg="#9fbfdf", font=("Helvetica", 8),
+            relief="flat", bd=0, padx=4, pady=3,
+            state="disabled", cursor="hand2",
+            yscrollcommand=scroll.set,
+        )
+        self.log_box.pack(side="left", fill="both", expand=True)
+        scroll.config(command=self.log_box.yview)
+
+        # Клик левой кнопкой — скопировать весь журнал в буфер обмена
+        self.log_box.bind("<Button-1>", self._copy_log)
+
+        self._log(T("wait"))
 
     def _on_drop(self, event):
         raw = event.data
@@ -269,7 +287,26 @@ class App:
         threading.Thread(target=task, daemon=True).start()
 
     def _log(self, msg):
-        self.root.after(0, lambda: self.log_var.set(msg))
+        """Добавить строку в журнал (с временем), прокрутить вниз."""
+        def _append():
+            ts = time.strftime("%H:%M:%S")
+            self.log_box.config(state="normal")
+            self.log_box.insert("end", f"[{ts}] {msg}\n")
+            self.log_box.see("end")
+            self.log_box.config(state="disabled")
+        self.root.after(0, _append)
+
+    def _copy_log(self, event=None):
+        """Скопировать весь текст журнала в буфер обмена по клику."""
+        text = self.log_box.get("1.0", "end").strip()
+        if not text:
+            return "break"
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        # Короткая подсказка в заголовке окна
+        self.root.title(T("copied"))
+        self.root.after(1000, lambda: self.root.title(T("app")))
+        return "break"
 
     def _check_update(self):
         if not HAS_UPDATER:
