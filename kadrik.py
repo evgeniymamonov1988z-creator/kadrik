@@ -170,7 +170,7 @@ class App:
 
         self.root = TkinterDnD.Tk() if HAS_DND else tk.Tk()
         self.root.title(T("app"))
-        self.root.geometry("130x150")
+        self.root.geometry("220x260")
         self.root.configure(bg=self.BG)
         self.root.resizable(False, False)
 
@@ -189,16 +189,16 @@ class App:
     def _build_ui(self):
         tk.Label(
             self.root, text=T("app"),
-            bg=self.BG, fg=self.ACCENT, font=("Helvetica", 9, "bold")
-        ).pack(pady=(5, 3))
+            bg=self.BG, fg=self.ACCENT, font=("Helvetica", 14, "bold")
+        ).pack(pady=(10, 6))
 
         # Чёрный квадрат в центре — сюда перетаскивается видео
         self.drop_area = tk.Label(
             self.root,
             text=T("drop"),
             bg="#000000", fg="#777777",
-            font=("Helvetica", 7),
-            width=7, height=3,
+            font=("Helvetica", 10),
+            width=11, height=5,
         )
         self.drop_area.pack()
         self.drop_area.bind("<Button-1>", lambda e: self._pick_file())
@@ -208,17 +208,17 @@ class App:
         # Одна кнопка — Обновить (потом уберём)
         self.upd_btn = tk.Button(
             self.root, text=T("update"), bg=self.ACCENT, fg="white",
-            font=("Helvetica", 7, "bold"), relief="flat",
+            font=("Helvetica", 10, "bold"), relief="flat",
             command=self._check_update
         )
-        self.upd_btn.pack(pady=(5, 2))
+        self.upd_btn.pack(pady=(10, 4))
 
         self.log_var = tk.StringVar(value=T("wait"))
         tk.Label(
             self.root, textvariable=self.log_var,
-            bg=self.BG, fg="#888888", font=("Helvetica", 6),
-            wraplength=118, justify="center"
-        ).pack(pady=(0, 4))
+            bg=self.BG, fg="#888888", font=("Helvetica", 9),
+            wraplength=200, justify="center"
+        ).pack(pady=(0, 8))
 
     def _on_drop(self, event):
         raw = event.data
