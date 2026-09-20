@@ -107,8 +107,8 @@ def T(key, **kw):
 # Если их нет — создаются автоматически при добавлении видео.
 BASE_DIR = Path.home() / "Mamonov" / "kadrik"
 
-# Репозиторий для авто-обновления (SourceCraft)
-REPO_URL = "ssh://git@ssh.sourcecraft.dev/evgeniymamonov1988/kadrik.git"
+# Репозиторий для авто-обновления (SourceCraft, HTTPS — чтение без ключей/паролей)
+REPO_URL = "https://git.sourcecraft.dev/evgeniymamonov1988/kadrik.git"
 REPO_BRANCH = "main"
 
 # Настройки по умолчанию (UI убран, берём как есть)
