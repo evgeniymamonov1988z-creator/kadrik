@@ -113,6 +113,7 @@ def ensure_ffmpeg(log_fn=None):
 
 def ensure_pip_package(import_name, pip_name, log_fn=None, label=None):
     """Проверяет python-библиотеку; нет — ставит её в bin/ через pip. True/False."""
+    import importlib
     add_to_path()
     try:
         __import__(import_name)
@@ -124,10 +125,13 @@ def ensure_pip_package(import_name, pip_name, log_fn=None, label=None):
             log_fn(label or f"Ставлю {pip_name}…")
         bin_dir()
         subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet",
+            [sys.executable, "-m", "pip", "install", "--quiet", "--upgrade",
              "--target", str(BIN_DIR), pip_name],
             timeout=600)
         add_to_path()
+        # Важно: после появления новых файлов обновляем кэш поиска модулей,
+        # иначе свежеустановленная библиотека не найдётся в этом же запуске.
+        importlib.invalidate_caches()
         __import__(import_name)
         return True
     except Exception:

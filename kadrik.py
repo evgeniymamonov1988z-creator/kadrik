@@ -394,6 +394,18 @@ class App:
         self.cfg = dict(CFG)
         self.ready = False  # готов ли движок нарезки
 
+        # Перетаскивание нужно подключить ДО создания окна — иначе оно не заработает.
+        # Если библиотеки нет — быстро догружаем её и подключаем сразу.
+        global HAS_DND, DND_FILES, TkinterDnD
+        if not HAS_DND and HAS_SETUP:
+            try:
+                if tools_setup.ensure_dnd():
+                    from tkinterdnd2 import DND_FILES as _D, TkinterDnD as _T
+                    DND_FILES, TkinterDnD = _D, _T
+                    HAS_DND = True
+            except Exception:
+                pass
+
         self.root = TkinterDnD.Tk() if HAS_DND else tk.Tk()
         self.root.title(T("app"))
         self.root.geometry("220x340")
