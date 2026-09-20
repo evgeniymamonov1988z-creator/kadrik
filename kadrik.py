@@ -74,6 +74,10 @@ STRINGS = {
         "Already up to date":     "Уже актуально",
         "Connected!":             "Подключено!",
         "Connected and updated!": "Подключено и обновлено!",
+        # Понятные подсказки при ошибках
+        "e_nogit":  "Нужен Git.\nСкачай: git-scm.com",
+        "e_net":    "Нет интернета",
+        "e_fail":   "Не вышло обновить",
     },
     "en": {
         "app":        "Kadrik",
@@ -94,6 +98,9 @@ STRINGS = {
         "Already up to date":     "Already Up To Date",
         "Connected!":             "Connected!",
         "Connected and updated!": "Connected And Updated!",
+        "e_nogit":  "Git required.\nGet it: git-scm.com",
+        "e_net":    "No internet",
+        "e_fail":   "Update failed",
     },
 }
 
@@ -101,6 +108,21 @@ STRINGS = {
 def T(key, **kw):
     s = STRINGS[LANG].get(key, key)
     return s.format(**kw) if kw else s
+
+
+def _friendly(msg):
+    """Превращает технический ответ модуля обновления в понятный текст."""
+    low = (msg or "").lower()
+    if "not installed" in low or "git is not" in low:
+        return T("e_nogit")
+    if "timeout" in low or "internet" in low or "could not resolve" in low or "unable to access" in low:
+        return T("e_net")
+    # Известные короткие ответы переводим через словарь, иначе — общая ошибка
+    if msg in STRINGS[LANG]:
+        return T(msg)
+    if low.startswith("already") or "up to date" in low or "updated" in low or "connected" in low:
+        return T(msg)
+    return T("e_fail")
 
 
 # Куда складываем кадры: папка Mamonov в домашнем каталоге, внутри — подпапка kadrik.
@@ -261,7 +283,7 @@ class App:
                 upd = Updater(repo_url=REPO_URL, branch=REPO_BRANCH)
                 ok, msg = upd.update()
                 # Переводим известные ответы модуля обновления
-                self._log(("✅ " if ok else "❌ ") + T(msg))
+                self._log(("✅ " if ok else "❌ ") + _friendly(msg))
                 if ok and "up to date" not in msg.lower():
                     self.root.after(1200, upd.restart)
             except Exception as exc:
