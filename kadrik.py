@@ -170,9 +170,19 @@ def _friendly(msg):
     return T("e_fail")
 
 
-# Куда складываем кадры: папка Mamonov в домашнем каталоге, внутри — подпапка kadrik.
-# Если их нет — создаются автоматически при добавлении видео.
-BASE_DIR = Path.home() / "Mamonov" / "kadrik"
+# Куда складываем кадры: папка Mamonov на Рабочем столе, внутри — подпапка kadrik.
+# Если Рабочий стол не найден — используем домашнюю папку. Папки создаются сами.
+def _desktop_dir():
+    d = Path.home() / "Desktop"
+    if d.exists():
+        return d
+    # Некоторые системы называют папку по-русски
+    ru = Path.home() / "Рабочий стол"
+    if ru.exists():
+        return ru
+    return d  # создастся автоматически как Desktop
+
+BASE_DIR = _desktop_dir() / "Mamonov" / "kadrik"
 
 # Репозиторий для авто-обновления (SourceCraft, HTTPS — чтение без ключей/паролей)
 REPO_URL = "https://git.sourcecraft.dev/evgeniymamonov1988/kadrik.git"
@@ -268,9 +278,9 @@ def extract_frames(video_path, output_dir, cfg, log_fn=None):
     if not video_path.exists():
         raise FileNotFoundError(video_path)
 
-    # Кадры складываем в Mamonov/kadrik/<имя_видео>_frames (папки создаются сами).
+    # Кадры складываем на Рабочий стол: Mamonov/kadrik/<имя_видео> (папки создаются сами).
     if not output_dir:
-        output_dir = BASE_DIR / f"{video_path.stem}_frames"
+        output_dir = BASE_DIR / video_path.stem
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 

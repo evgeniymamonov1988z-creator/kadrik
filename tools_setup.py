@@ -15,8 +15,17 @@ import subprocess
 import urllib.request
 from pathlib import Path
 
-# Единая папка для всех библиотек и движка
-BIN_DIR = Path.home() / "Mamonov" / "kadrik" / "bin"
+# Единая папка для всех библиотек и движка — на Рабочем столе: Mamonov/kadrik/bin
+def _desktop_dir():
+    d = Path.home() / "Desktop"
+    if d.exists():
+        return d
+    ru = Path.home() / "Рабочий стол"
+    if ru.exists():
+        return ru
+    return d
+
+BIN_DIR = _desktop_dir() / "Mamonov" / "kadrik" / "bin"
 
 # Готовая статичная сборка ffmpeg для Windows 64-bit (ffmpeg.exe + ffprobe.exe)
 FFMPEG_WIN_URL = (
