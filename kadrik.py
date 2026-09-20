@@ -160,6 +160,7 @@ STRINGS = {
         "recheck":     "Проверить снова",
         "not_yet":     "Пока не найдено.\nПосле оплаты нажмите «Проверить снова».",
         "act_ok":      "Спасибо! Полная версия.",
+        "already_running": "Кадрик уже запущен",
     },
     "en": {
         "app":        "Kadrik",
@@ -198,6 +199,7 @@ STRINGS = {
         "recheck":     "Check Again",
         "not_yet":     "Not Found Yet.\nAfter Payment Click Check Again.",
         "act_ok":      "Thank You! Full Version.",
+        "already_running": "Kadrik Is Already Running",
     },
 }
 
@@ -757,5 +759,59 @@ class App:
             self._log(T("buy_at"))
 
 
+# Защита от повторного запуска: держим файл-блокировку открытым весь сеанс.
+_LOCK_HANDLE = None
+
+
+def _acquire_single_instance():
+    """Не даёт запустить вторую копию программы.
+    True  — это единственный запущенный экземпляр;
+    False — программа уже запущена."""
+    global _LOCK_HANDLE
+    try:
+        BASE_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    lock_path = BASE_DIR / ".kadrik.lock"
+    try:
+        fh = open(lock_path, "a+")
+    except Exception:
+        # Не смогли создать файл-замок — не мешаем запуску.
+        return True
+    try:
+        if os.name == "nt":
+            import msvcrt
+            try:
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError:
+                fh.close()
+                return False
+        else:
+            import fcntl
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                fh.close()
+                return False
+    except Exception:
+        # Блокировка недоступна — не мешаем запуску.
+        return True
+    _LOCK_HANDLE = fh  # держим открытым, пока работает программа
+    return True
+
+
 if __name__ == "__main__":
+    if not _acquire_single_instance():
+        # Программа уже запущена — короткое сообщение и выход.
+        try:
+            from tkinter import messagebox as _mb
+            _r = tk.Tk()
+            _r.withdraw()
+            _r.attributes("-topmost", True)
+            _mb.showinfo(T("app"), T("already_running"))
+            _r.destroy()
+        except Exception:
+            pass
+        sys.exit(0)
     App()
