@@ -9,6 +9,7 @@ python -m pip install --upgrade pyinstaller pillow tkinterdnd2
 
 echo Собираю Kadrik.exe (без консоли)...
 python -m PyInstaller --noconfirm --onefile --noconsole --name Kadrik ^
+  --icon icon.ico ^
   --collect-all tkinterdnd2 --collect-all PIL ^
   kadrik.py
 

@@ -471,6 +471,14 @@ class App:
         self.root.configure(bg=self.BG)
         self.root.resizable(False, False)
 
+        # Иконка окна (логотип MAMONOV), если файл рядом есть
+        try:
+            _ico = os.path.join(_here, "icon.ico")
+            if os.path.exists(_ico):
+                self.root.iconbitmap(_ico)
+        except Exception:
+            pass
+
         # Всегда поверх всех окон
         self.root.attributes("-topmost", True)
         # Сворачивается только по кнопке «_» (штатное поведение окна)
