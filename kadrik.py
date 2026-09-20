@@ -15,6 +15,15 @@ import tkinter as tk
 from tkinter import filedialog
 from pathlib import Path
 
+# Модуль авто-загрузки инструментов (только стандартные библиотеки) — подключаем раньше всех,
+# чтобы сразу добавить папку bin/ в пути и грузить библиотеки оттуда.
+try:
+    import tools_setup
+    tools_setup.add_to_path()
+    HAS_SETUP = True
+except ImportError:
+    HAS_SETUP = False
+
 # Пытаемся подключить drag-and-drop
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -35,14 +44,6 @@ try:
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
-
-
-# Модуль авто-загрузки инструментов (ffmpeg и пр.)
-try:
-    import tools_setup
-    HAS_SETUP = True
-except ImportError:
-    HAS_SETUP = False
 
 # Пути к движку нарезки. По умолчанию — системные; при запуске могут смениться на скачанные.
 FFMPEG = "ffmpeg"
@@ -403,9 +404,12 @@ class App:
             ffm, ffp = tools_setup.ensure_ffmpeg(log_fn=self._log)
         if ffm and ffp:
             FFMPEG, FFPROBE = ffm, ffp
-            # догружаем оценку чёткости (Pillow), если её нет
+            # догружаем в bin/ остальные библиотеки
             if not HAS_PIL:
                 HAS_PIL = tools_setup.ensure_pillow(log_fn=self._log)
+            # перетаскивание (опционально; подхватится при следующем запуске)
+            if not HAS_DND:
+                tools_setup.ensure_dnd(log_fn=self._log)
             self.ready = True
             self._log(T("ready"))
             self._log(T("wait"))
