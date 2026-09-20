@@ -27,6 +27,9 @@ def _desktop_dir():
 
 BIN_DIR = _desktop_dir() / "Mamonov" / "kadrik" / "bin"
 
+# Чтобы при вызове pip на Windows не выскакивало чёрное окно консоли.
+_NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}
+
 # --- Язык сообщений (русский / английский) ---
 def _detect_lang():
     try:
@@ -174,7 +177,7 @@ def ensure_pip_package(import_name, pip_name, log_fn=None, label=None):
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "--quiet", "--upgrade",
              "--target", str(BIN_DIR), pip_name],
-            timeout=600)
+            timeout=600, **_NOWIN)
         add_to_path()
         # Важно: после появления новых файлов обновляем кэш поиска модулей,
         # иначе свежеустановленная библиотека не найдётся в этом же запуске.

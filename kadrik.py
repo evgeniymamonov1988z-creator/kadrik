@@ -60,6 +60,9 @@ except ImportError:
 FFMPEG = "ffmpeg"
 FFPROBE = "ffprobe"
 
+# Чтобы при вызове ffmpeg/ffprobe на Windows не выскакивало чёрное окно консоли.
+_NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}
+
 
 def detect_lang():
     """Русский язык на российской Windows, иначе английский."""
@@ -224,7 +227,7 @@ def _detect_scene_times(video_path, thresh):
         cmd = [FFMPEG, "-i", str(video_path), "-vf",
                f"select='gt(scene,{thresh})',metadata=print",
                "-an", "-f", "null", "-"]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600, **_NOWIN)
         for line in (r.stderr or "").splitlines():
             if "pts_time:" in line:
                 try:
@@ -258,7 +261,7 @@ def _extract_at(video_path, t, dst, ext, quality):
         cmd += ["-q:v", str(max(1, min(31, int(31 - quality * 30 / 100))))]
     cmd += [str(dst), "-y"]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=180, **_NOWIN)
         return r.returncode == 0 and Path(dst).exists()
     except Exception:
         return False
@@ -270,7 +273,7 @@ def _video_duration(video_path):
         r = subprocess.run(
             [FFPROBE, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", str(video_path)],
-            capture_output=True, text=True, timeout=30)
+            capture_output=True, text=True, timeout=30, **_NOWIN)
         d = float((r.stdout or "").strip())
         return d if d > 0 else None
     except Exception:
@@ -382,7 +385,7 @@ def extract_frames(video_path, output_dir, cfg, log_fn=None):
         cmd += ["-compression_level", "5"]
     cmd += ["-frames:v", str(keep), str(pattern), "-y"]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, **_NOWIN)
     if result.returncode != 0:
         if log_fn:
             log_fn(T("err_ffmpeg"))
@@ -489,17 +492,9 @@ class App:
         self.drop_area.bind("<Enter>", lambda e: self.drop_area.configure(bg="#111111"))
         self.drop_area.bind("<Leave>", lambda e: self.drop_area.configure(bg="#000000"))
 
-        # Одна кнопка — Обновить (потом уберём)
-        self.upd_btn = tk.Button(
-            self.root, text=T("update"), bg=self.ACCENT, fg="white",
-            font=("Helvetica", 10, "bold"), relief="flat",
-            command=self._check_update
-        )
-        self.upd_btn.pack(pady=(10, 4))
-
-        # Журнал лога под кнопкой — клик мышкой копирует весь текст
+        # Журнал лога — клик мышкой копирует весь текст
         log_wrap = tk.Frame(self.root, bg=self.BG)
-        log_wrap.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        log_wrap.pack(fill="both", expand=True, padx=8, pady=(10, 8))
 
         scroll = tk.Scrollbar(log_wrap)
         scroll.pack(side="right", fill="y")
@@ -571,27 +566,6 @@ class App:
         self.root.title(T("copied"))
         self.root.after(1000, lambda: self.root.title(T("app")))
         return "break"
-
-    def _check_update(self):
-        if not HAS_UPDATER:
-            # Модуля обновления нет — ничего не пишем, остаётся «Жду видео»
-            return
-        self.upd_btn.config(state="disabled")
-        self._log(T("checking"))
-
-        def task():
-            try:
-                upd = Updater(repo_url=REPO_URL, branch=REPO_BRANCH)
-                ok, msg = upd.update()
-                # Переводим известные ответы модуля обновления
-                self._log(("✅ " if ok else "❌ ") + _friendly(msg))
-                if ok and "up to date" not in msg.lower():
-                    self.root.after(1200, upd.restart)
-            except Exception as exc:
-                self._log(T("upd_err", e=exc))
-            finally:
-                self.root.after(0, lambda: self.upd_btn.config(state="normal"))
-        threading.Thread(target=task, daemon=True).start()
 
 
 if __name__ == "__main__":
