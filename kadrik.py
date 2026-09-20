@@ -651,6 +651,11 @@ class App:
         self.lic_state = state
         self.lic_left = left
         self._set_demo_label()
+        # Закрепляем постоянный номер копии за этим компьютером (один раз).
+        try:
+            lic.copy_for(BASE_DIR)
+        except Exception:
+            pass
         if state == "trial":
             self._log(T("trial_left", n=left))
             # Тихо в фоне спрашиваем сайт — вдруг копия уже куплена
@@ -663,7 +668,7 @@ class App:
     def _online_check(self, show_if_locked):
         """Спрашивает сайт, куплена ли копия (в фоне)."""
         try:
-            result = lic.check_online()
+            result = lic.check_online(base=BASE_DIR)
         except Exception:
             result = None
         if result is True:
@@ -730,7 +735,7 @@ class App:
 
             def _job():
                 try:
-                    res = lic.check_online()
+                    res = lic.check_online(base=BASE_DIR)
                 except Exception:
                     res = None
                 if res is True:
