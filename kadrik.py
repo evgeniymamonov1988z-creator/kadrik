@@ -155,7 +155,7 @@ STRINGS = {
         # Демо / активация
         "trial_left":  "Демо: осталось {n} дн.",
         "demo_over":   "Демо закончилось",
-        "buy_at":      "Купить: evgeniymamonov.com",
+        "buy_at":      "Разблокировать за 299 ₽",
         "checking_lic":"Проверяю покупку…",
         "recheck":     "Проверить снова",
         "not_yet":     "Пока не найдено.\nПосле оплаты нажмите «Проверить снова».",
@@ -224,7 +224,7 @@ def _friendly(msg):
     return T("e_fail")
 
 
-# Куда складываем кадры: папка Mamonov на Рабочем столе, внутри — подпапка kadrik.
+# Куда складываем кадры: папка Mamonov на Рабочем столе, внутри — подпапка Kadrik.
 # Если Рабочий стол не найден — используем домашнюю папку. Папки создаются сами.
 def _desktop_dir():
     d = Path.home() / "Desktop"
@@ -236,7 +236,7 @@ def _desktop_dir():
         return ru
     return d  # создастся автоматически как Desktop
 
-BASE_DIR = _desktop_dir() / "Mamonov" / "kadrik"
+BASE_DIR = _desktop_dir() / "Mamonov" / "Kadrik"
 
 # Репозиторий для авто-обновления (SourceCraft, HTTPS — чтение без ключей/паролей)
 REPO_URL = "https://git.sourcecraft.dev/evgeniymamonov1988/kadrik.git"
@@ -335,7 +335,7 @@ def extract_frames(video_path, output_dir, cfg, log_fn=None):
     if not video_path.exists():
         raise FileNotFoundError(video_path)
 
-    # Кадры складываем прямо в папку на Рабочем столе: Mamonov/kadrik (папки создаются сами).
+    # Кадры складываем прямо в папку на Рабочем столе: Mamonov/Kadrik (папки создаются сами).
     if not output_dir:
         output_dir = BASE_DIR
     output_dir = Path(output_dir)
@@ -757,9 +757,26 @@ class App:
                   activebackground="#7cc0f5").pack(pady=(10, 12), ipadx=8)
 
     def _open_site(self):
+        """Открывает страницу оплаты именно этой копии (с её номером),
+        чтобы после оплаты демо снялось автоматически."""
+        url = SITE_URL
+        try:
+            if HAS_LIC:
+                copy = (lic.copy_for(BASE_DIR) or "").upper()
+                mid = lic.machine_id() or ""
+                if copy:
+                    from urllib.parse import urlencode
+                    q = urlencode({
+                        "instance": copy,
+                        "mid": mid,
+                        "lang": "en" if LANG == "en" else "ru",
+                    })
+                    url = SITE_URL + "/buy.php?" + q
+        except Exception:
+            url = SITE_URL
         try:
             import webbrowser
-            webbrowser.open(SITE_URL)
+            webbrowser.open(url)
         except Exception:
             self._log(T("buy_at"))
 
@@ -777,7 +794,16 @@ def _acquire_single_instance():
         BASE_DIR.mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
-    lock_path = BASE_DIR / ".kadrik.lock"
+    # Файл-замок держим в папке bin/ (рядом с библиотеками и движком).
+    try:
+        if HAS_SETUP:
+            lock_dir = tools_setup.bin_dir()
+        else:
+            lock_dir = BASE_DIR / "bin"
+            lock_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        lock_dir = BASE_DIR
+    lock_path = Path(lock_dir) / ".kadrik.lock"
     try:
         fh = open(lock_path, "a+")
     except Exception:

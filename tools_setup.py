@@ -2,7 +2,7 @@
 tools_setup.py — авто-загрузка всего необходимого в одну папку bin/.
 
 Всё (движок ffmpeg/ffprobe и python-библиотеки) складывается в
-    <домашняя>/Mamonov/kadrik/bin
+    <домашняя>/Mamonov/Kadrik/bin
 Перед каждым запуском проверяем: если чего-то нет — скачиваем заново.
 """
 
@@ -15,7 +15,7 @@ import subprocess
 import urllib.request
 from pathlib import Path
 
-# Единая папка для всех библиотек и движка — на Рабочем столе: Mamonov/kadrik/bin
+# Единая папка для всех библиотек и движка — на Рабочем столе: Mamonov/Kadrik/bin
 def _desktop_dir():
     d = Path.home() / "Desktop"
     if d.exists():
@@ -25,7 +25,7 @@ def _desktop_dir():
         return ru
     return d
 
-BIN_DIR = _desktop_dir() / "Mamonov" / "kadrik" / "bin"
+BIN_DIR = _desktop_dir() / "Mamonov" / "Kadrik" / "bin"
 
 # Чтобы при вызове pip на Windows не выскакивало чёрное окно консоли.
 _NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}
