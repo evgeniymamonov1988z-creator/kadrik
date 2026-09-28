@@ -542,7 +542,14 @@ class App:
             self.root, text="", bg=self.BG, fg="#e5c07b",
             font=("Helvetica", 8, "bold"),
         )
-        self.demo_lbl.pack(pady=(0, 4))
+        self.demo_lbl.pack(pady=(0, 2))
+
+        # Ссылка «Разблокировать за 299 ₽» прямо на панели (видна, когда демо кончилось)
+        self.buy_lbl = tk.Label(
+            self.root, text="", bg=self.BG, fg="#9fbfdf",
+            font=("Helvetica", 9, "underline"), cursor="hand2",
+        )
+        self.buy_lbl.bind("<Button-1>", lambda e: self._open_site())
 
         # Чёрный квадрат в центре — сюда перетаскивается видео
         self.drop_area = tk.Label(
@@ -599,9 +606,9 @@ class App:
 
     def _process(self, video_path):
         if self.lic_state == "expired":
-            # Демо закончилось — нарезка заблокирована, предлагаем активацию
+            # Демо закончилось — нарезка заблокирована, показываем ссылку на панели
             self._log(T("demo_over"))
-            self._show_activation()
+            self._set_demo_label()
             return
         if not self.ready:
             # движок ещё готовится/не скачался
@@ -681,8 +688,8 @@ class App:
             self.root.after(0, self._set_demo_label)
             self.root.after(0, self._close_activation)
         elif show_if_locked:
-            # не куплено или нет связи — предлагаем купить
-            self.root.after(0, self._show_activation)
+            # не куплено или нет связи — просто показываем ссылку на панели (без всплывающего окна)
+            self.root.after(0, self._set_demo_label)
 
     def _close_activation(self):
         win = getattr(self, "_act_win", None)
@@ -693,87 +700,59 @@ class App:
             pass
 
     def _set_demo_label(self):
-        """Обновляет постоянную строку состояния демо."""
+        """Обновляет постоянную строку состояния демо и ссылку покупки."""
         try:
             if self.lic_state == "trial":
                 self.demo_lbl.config(text=T("trial_left", n=self.lic_left), fg="#e5c07b")
+                self._hide_buy_link()
             elif self.lic_state == "expired":
                 self.demo_lbl.config(text=T("demo_over"), fg="#e06c75")
+                self._show_buy_link()
             else:
                 self.demo_lbl.config(text="")
+                self._hide_buy_link()
         except Exception:
             pass
 
-    def _show_activation(self):
-        """Окно: демо закончилось — ссылка на покупку и кнопка «Проверить снова»."""
-        if getattr(self, "_act_win", None) and tk.Toplevel.winfo_exists(self._act_win):
-            self._act_win.lift()
-            return
-        win = tk.Toplevel(self.root)
-        self._act_win = win
-        win.title(T("demo_over"))
-        win.configure(bg=self.BG)
-        win.resizable(False, False)
-        win.attributes("-topmost", True)
-        win.geometry("270x200")
+    def _show_buy_link(self):
+        """Показывает ссылку «Разблокировать…» на панели."""
+        try:
+            self.buy_lbl.config(text=T("buy_at"))
+            if not self.buy_lbl.winfo_ismapped():
+                self.buy_lbl.pack(after=self.demo_lbl, pady=(0, 4))
+        except Exception:
+            pass
 
-        tk.Label(win, text=T("demo_over"), bg=self.BG, fg=self.ACCENT,
-                 font=("Helvetica", 12, "bold")).pack(pady=(14, 6))
-
-        # Ссылка на покупку (клик открывает сайт)
-        link = tk.Label(win, text=T("buy_at"), bg=self.BG, fg="#9fbfdf",
-                        font=("Helvetica", 10, "underline"), cursor="hand2")
-        link.pack(pady=(0, 10))
-        link.bind("<Button-1>", lambda e: self._open_site())
-
-        msg = tk.Label(win, text="", bg=self.BG, fg="#98c379",
-                       font=("Helvetica", 8), justify="center")
-        msg.pack()
-
-        def _recheck(_e=None):
-            msg.config(text=T("checking_lic"), fg="#9fbfdf")
-
-            def _job():
-                try:
-                    res = lic.check_online(base=BASE_DIR)
-                except Exception:
-                    res = None
-                if res is True:
-                    try:
-                        lic.mark_licensed(BASE_DIR)
-                    except Exception:
-                        pass
-                    self.lic_state = "activated"
-                    self._log(T("act_ok"))
-                    self.root.after(0, self._set_demo_label)
-                    self.root.after(0, self._close_activation)
-                else:
-                    self.root.after(0, lambda: msg.config(text=T("not_yet"), fg="#e5c07b"))
-
-            threading.Thread(target=_job, daemon=True).start()
-
-        tk.Button(win, text=T("recheck"), command=_recheck,
-                  bg=self.ACCENT, fg="#000000", relief="flat",
-                  activebackground="#7cc0f5").pack(pady=(10, 12), ipadx=8)
+    def _hide_buy_link(self):
+        """Прячет ссылку покупки с панели."""
+        try:
+            self.buy_lbl.config(text="")
+            if self.buy_lbl.winfo_ismapped():
+                self.buy_lbl.pack_forget()
+        except Exception:
+            pass
 
     def _open_site(self):
         """Открывает страницу оплаты именно этой копии (с её номером),
         чтобы после оплаты демо снялось автоматически."""
-        url = SITE_URL
+        # Всегда ведём на страницу оплаты (не на главную).
+        lang = "en" if LANG == "en" else "ru"
+        params = {"lang": lang}
         try:
             if HAS_LIC:
                 copy = (lic.copy_for(BASE_DIR) or "").upper()
                 mid = lic.machine_id() or ""
                 if copy:
-                    from urllib.parse import urlencode
-                    q = urlencode({
-                        "instance": copy,
-                        "mid": mid,
-                        "lang": "en" if LANG == "en" else "ru",
-                    })
-                    url = SITE_URL + "/buy.php?" + q
+                    params["instance"] = copy
+                if mid:
+                    params["mid"] = mid
         except Exception:
-            url = SITE_URL
+            pass
+        try:
+            from urllib.parse import urlencode
+            url = SITE_URL + "/buy.php?" + urlencode(params)
+        except Exception:
+            url = SITE_URL + "/buy.php"
         try:
             import webbrowser
             webbrowser.open(url)
