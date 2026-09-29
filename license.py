@@ -156,6 +156,13 @@ def machine_id():
 def check_online(copy=None, machine=None, base=None, timeout=6):
     """Спрашивает сайт, снята ли демо с этой копии НА ЭТОМ компьютере.
     Передаёт постоянный номер копии и ид компьютера — сайт запоминает пару.
+
+    «Переименование»: сайт может вернуть НАСТОЯЩИЙ номер копии,
+    закреплённый за этим компьютером (поле "copy") — например
+    оплаченный AF36, даже если запустили файл с новым номером AF40.
+    Если сайт прислал другой (правильный) номер — принимаем его как свой
+    и сохраняем: на этом компьютере снова один номер.
+
     Возвращает True / False / None (нет связи или нет номера)."""
     if copy is None:
         copy = copy_for(base) if base is not None else copy_number()
@@ -168,7 +175,15 @@ def check_online(copy=None, machine=None, base=None, timeout=6):
         req = Request(url, headers={"User-Agent": "Kadrik"})
         with urlopen(req, timeout=timeout) as r:
             obj = json.loads(r.read().decode("utf-8", "ignore") or "{}")
-        return bool(obj.get("licensed"))
+        licensed = bool(obj.get("licensed"))
+        # «Переименование»: если сайт подсказал другой номер,
+        # закреплённый за этим компьютером — принимаем его как свой.
+        srv = (obj.get("copy", "") or "").upper()
+        if base is not None and _COPY_RE.match(srv) and srv != (copy or "").upper():
+            st = _load(base)
+            st["copy"] = srv
+            _save(base, st)
+        return licensed
     except Exception:
         return None
 
