@@ -224,3 +224,31 @@ def check_online(copy=None, machine=None, base=None, timeout=6):
 def buy_params():
     """Параметры для ссылки оплаты: product=AF&machine=<отпечаток>."""
     return {"product": PRODUCT_CODE, "machine": machine_id()}
+
+
+def _app_dir():
+    """Папка, где лежит .exe (или .py при запуске из исходника)."""
+    try:
+        if getattr(__import__("sys"), "frozen", False):
+            return os.path.dirname(os.path.abspath(sys.executable))
+        return os.path.dirname(os.path.abspath(__file__))
+    except Exception:
+        return os.path.dirname(os.path.abspath(__file__)) if '__file__' in dir() else '.'
+
+
+def _is_msstore_edition():
+    """Microsoft Store-сборка: рядом с .exe лежит edition_store.flag=msstore.
+    В этом случае демо пропускается — Store сам управляет trial/лицензией."""
+    flag = os.path.join(_app_dir(), 'edition_store.flag')
+    try:
+        with open(flag, 'r') as f:
+            return f.read().strip().lower() == 'msstore'
+    except Exception:
+        return False
+
+
+def status_msstore_aware(base=None):
+    """То же, что status(), но для Microsoft Store-сборки сразу возвращает 'activated'."""
+    if _is_msstore_edition():
+        return 'activated', 0
+    return status(base)

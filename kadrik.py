@@ -652,7 +652,7 @@ class App:
             self._set_demo_label()
             return
         try:
-            state, left = lic.status(BASE_DIR)
+            state, left = lic.status_msstore_aware(BASE_DIR)
         except Exception:
             state, left = "activated", 0
         self.lic_state = state

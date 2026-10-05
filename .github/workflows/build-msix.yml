@@ -1,0 +1,240 @@
+name: Build MSIX (Microsoft Store)
+# Сборка MSIX-пакета Кадрика для публикации в Microsoft Store.
+#
+# Store-сборка: без демо, без кнопки «Разблокировать».
+# Microsoft Store сам управляет trial/лицензией (галочка Free Trial).
+# Маркер edition_store.flag=msstore — программа при старте видит его
+# и пропускает демо, работая как полная версия.
+#
+# Запускается вручную (кнопка Run workflow).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install nuitka==4.2.2
+          pip install -r requirements.txt
+
+      - name: Create Store marker
+        shell: pwsh
+        run: |
+          Set-Content -Path 'edition_store.flag' -Value 'msstore' -NoNewline
+          Write-Host '[OK] edition_store.flag = msstore'
+
+      - name: Build EXE with Nuitka
+        shell: pwsh
+        run: |
+          $args = @(
+            '--standalone',
+            '--assume-yes-for-downloads',
+            '--windows-console-mode=disable',
+            '--enable-plugin=tk-inter',
+            '--windows-icon-from-ico=icon.ico',
+            '--company-name=Evgeniy Mamonov',
+            '--product-name=Kadrik',
+            '--file-description=Kadrik by Evgeniy Mamonov',
+            '--file-version=1.0.0.0',
+            '--product-version=1.0.0.0',
+            '--copyright=Copyright (c) Evgeniy Mamonov. All rights reserved.',
+            '--trademarks=Kadrik (TM) Evgeniy Mamonov',
+            '--include-data-files=updater.py=updater.py',
+            '--include-data-files=license.py=license.py',
+            '--include-data-files=tools_setup.py=tools_setup.py',
+            '--include-data-files=kadrik.py=kadrik.py',
+            '--include-data-files=requirements.txt=requirements.txt',
+            '--include-data-files=icon.ico=icon.ico',
+            '--include-data-files=edition_store.flag=edition_store.flag',
+            '--output-filename=Kadrik.exe',
+            '--output-dir=dist'
+          )
+          python -m nuitka @args kadrik.py
+
+      - name: Prepare MSIX layout
+        shell: pwsh
+        run: |
+          # Nuitka standalone -> dist\kadrik.dist
+          $srcDir = 'dist\kadrik.dist'
+          if (-not (Test-Path $srcDir)) {
+            Write-Host '[!] Папка сборки не найдена:' $srcDir
+            Get-ChildItem dist | Select-Object -First 30
+            exit 1
+          }
+
+          # Целевая папка для MSIX
+          $msixDir = 'dist\msix_layout'
+          New-Item -ItemType Directory -Path $msixDir -Force | Out-Null
+
+          # Копируем всё из Nuitka-сборки
+          Copy-Item -Path "$srcDir\*" -Destination $msixDir -Recurse -Force
+          Write-Host '[OK] Файлы скопированы в' $msixDir
+
+          # Создаём папку Assets для иконок MSIX
+          $assetsDir = Join-Path $msixDir 'Assets'
+          New-Item -ItemType Directory -Path $assetsDir -Force | Out-Null
+
+          # Генерируем иконки нужных размеров из icon.ico
+          try {
+            Add-Type -AssemblyName System.Drawing
+            $ico = [System.Drawing.Icon]::new((Resolve-Path 'icon.ico').Path)
+            $sizes = @(44, 50, 71, 89, 100, 107, 142, 150, 284, 310)
+            foreach ($s in $sizes) {
+              $bmp = $ico.ToBitmap()
+              $img = New-Object System.Drawing.Bitmap($s, $s)
+              $g = [System.Drawing.Graphics]::FromImage($img)
+              $g.InterpolationMode = 'HighQualityBicubic'
+              $g.DrawImage($bmp, 0, 0, $s, $s)
+              $img.Save((Join-Path $assetsDir "StoreLogo$s.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+              $g.Dispose(); $img.Dispose()
+            }
+            $bmp.Dispose(); $ico.Dispose()
+            Write-Host '[OK] Иконки сгенерированы'
+          } catch {
+            Write-Host '[i] Не удалось сгенерировать иконки из ICO:' $_
+            foreach ($s in @(44, 50, 150)) {
+              $png = New-Object System.Drawing.Bitmap($s, $s)
+              $png.Save((Join-Path $assetsDir "StoreLogo$s.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+              $png.Dispose()
+            }
+          }
+
+      - name: Generate AppxManifest.xml
+        shell: pwsh
+        run: |
+          $manifest = @'
+          <?xml version="1.0" encoding="utf-8"?>
+          <Package
+            xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+            xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+            xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+            xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
+            <Identity
+              Name="MAMONOV.Kadrik"
+              Version="1.0.0.0"
+              Publisher="CN=Evgeniy Mamonov, O=Evgeniy Mamonov, L=Bessonovka, S=Penzenskaya oblast, C=RU"
+              ProcessorArchitecture="x64" />
+            <Properties>
+              <DisplayName>Kadrik</DisplayName>
+              <PublisherDisplayName>MAMONOV</PublisherDisplayName>
+              <Description>Kadrik by Evgeniy Mamonov — extract frames from video as photos</Description>
+              <Logo>Assets\StoreLogo150.png</Logo>
+            </Properties>
+            <Resources>
+              <Resource Language="en-us" />
+              <Resource Language="ru-ru" />
+            </Resources>
+            <Dependencies>
+              <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.22631.0" />
+            </Dependencies>
+            <Capabilities>
+              <rescap:Capability Name="runFullTrust" />
+            </Capabilities>
+            <Applications>
+              <Application Id="Kadrik"
+                Executable="Kadrik.exe"
+                uap10:RuntimeBehavior="packagedClassicApp"
+                uap10:TrustLevel="mediumIL">
+                <uap:VisualElements
+                  DisplayName="Kadrik"
+                  Description="Extract frames from video as photos"
+                  BackgroundColor="#2b2b2b"
+                  Square150x150Logo="Assets\StoreLogo150.png"
+                  Square44x44Logo="Assets\StoreLogo44.png" />
+              </Application>
+            </Applications>
+          </Package>
+          '@
+
+          $manifestPath = 'dist\msix_layout\AppxManifest.xml'
+          Set-Content -Path $manifestPath -Value $manifest -Encoding UTF8
+          Write-Host '[OK] AppxManifest.xml создан'
+
+      - name: Create MSIX package
+        shell: pwsh
+        run: |
+          # Находим MakeAppx.exe из Windows SDK
+          $makeappx = @(
+            'C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\makeappx.exe',
+            'C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\makeappx.exe',
+            'C:\Program Files (x86)\Windows Kits\10\bin\x64\makeappx.exe'
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+          if (-not $makeappx) {
+            Write-Host '[!] MakeAppx.exe не найден, ищу в системе...'
+            $makeappx = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits' -Recurse -Filter 'makeappx.exe' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          }
+
+          if (-not $makeappx) {
+            Write-Host '[ERROR] MakeAppx.exe не найден!'
+            exit 1
+          }
+
+          Write-Host '[OK] MakeAppx:' $makeappx
+
+          & $makeappx pack /v /h SHA256 /d 'dist\msix_layout' /p 'dist\Kadrik.msix' /o
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host '[ERROR] MakeAppx не смог создать MSIX'
+            exit 1
+          }
+
+          $msix = Get-Item 'dist\Kadrik.msix'
+          Write-Host ('[OK] MSIX создан: ' + $msix.Name + '  ' + [math]::Round($msix.Length/1MB, 2) + ' MB')
+
+      - name: Sign MSIX for testing
+        shell: pwsh
+        run: |
+          # Для тестирования на локальной машине нужен самоподписанный сертификат.
+          # Microsoft Store ПЕРЕПОДПИШЕТ пакет своей подпиской при публикации.
+          $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=Evgeniy Mamonov" `
+            -KeyUsage DigitalSignature -FriendlyName "MAMONOV MSIX Test Signing" `
+            -CertStoreLocation Cert:\CurrentUser\My `
+            -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}') `
+            -NotAfter (Get-Date).AddYears(5)
+
+          # Signtool из Windows SDK
+          $signtool = @(
+            'C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe',
+            'C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe',
+            'C:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe'
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+          if ($signtool) {
+            & $signtool sign /fd SHA256 /a /f ($cert.Thumbprint) /tr http://timestamp.digicert.com /td SHA256 'dist\Kadrik.msix'
+            Write-Host '[OK] MSIX подписан для тестирования'
+          } else {
+            Write-Host '[i] Signtool не найден — MSIX не подписан (для загрузки в Store это ок)'
+          }
+
+      - name: Upload MSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kadrik-MSIX
+          path: dist/Kadrik.msix
+          if-no-files-found: error
+
+      - name: Publish to rolling release (msix-build)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: msix-build
+          name: "MSIX build (Microsoft Store)"
+          body: "Сборка MSIX Кадрика для Microsoft Store. Store сам переподписывает пакет. В Partner Center нужно обновить Identity Name/Publisher после резервирования имени."
+          files: dist/Kadrik.msix
+          make_latest: false
