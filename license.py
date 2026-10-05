@@ -1,31 +1,28 @@
 """
-Лицензия / демо для «Кадрика» — единая модель бренда MAMONOV.
+Лицензия / демо для «Кадрика» — единая модель бренда MAMONOV
+(та же схема, что и у «Записи экрана»).
 
-Как это работает:
+Как это работает — БЕЗ номеров копий:
   * Демо работает 3 дня без ограничений.
-  * Номер копии (AF7) ЗАКРЕПЛЯЕТСЯ ЗА КОМПЬЮТЕРОМ ОДИН РАЗ — при первом
-    запуске. Дальше он хранится на этом компьютере и БОЛЬШЕ НЕ МЕНЯЕТСЯ,
-    даже если скачать Кадрика заново (новый файл с другим номером внутри
-    игнорируется — компьютер помнит свой первый номер).
-  * Программа шлёт свой закреплённый номер и отпечаток компьютера:
-    /api/check.php?instance=<номер>&machine=<ид компьютера> → {"licensed": true/false}.
-  * Сайт запоминает пару «номер ↔ компьютер», поэтому к моменту покупки
-    уже знает, на каком компьютере живёт копия. Оплата снимает демо только
-    для этой пары номер+компьютер.
-  * Мягкий режим: нет связи — работаем по последнему ответу; один раз получив
-    licensed=true — больше не блокируемся.
-  * Первый номер берётся из «хвоста» .exe (метка MAMONOV_ID:AF7) → из
-    _COPY_NUMBER (для запуска из исходников) и сохраняется на компьютере.
-  * Если локальный файл с номером потерялся (переустановка Windows, чистка
-    папки) — программа спрашивает сервер по отпечатку компьютера
-    (recover.php) и получает обратно тот же номер, что был закреплён
-    раньше; номер не сбрасывается на новый.
+  * Одна программа на всё (нет отдельных сборок демо/полная).
+  * Программа привязана к ОТПЕЧАТКУ этого компьютера (machine_id):
+    16 hex-символов из MachineGuid Windows + имя ПК. Без личных данных.
+  * Проверка оплаты по отпечатку:
+      /api/check.php?product=AF&machine=<отпечаток> -> {"paid": true/false}
+  * Кнопка «Разблокировать» сама подставляет отпечаток в ссылку оплаты —
+    покупателю ничего вводить не надо.
+  * Локальная «галочка оплачено» — папка %APPDATA%\\MAMONOV\\.license_AF
+    с файлом id.txt, где лежит отпечаток ЭТОГО компьютера (чтобы
+    папку нельзя было просто скопировать на другой ПК). Есть галочка ->
+    полная версия сразу, даже без интернета.
+  * Дата первого запуска демо — в %APPDATA%\\MAMONOV\\.demo_date_AF.
+  * Защита от перевода часов назад: помним самую позднюю виденную дату.
 Зависимости: только стандартные библиотеки Python.
+Совместимость: функции status()/check_online()/mark_licensed()/machine_id()
+сохранены, чтобы kadrik.py не менялся по вызовам.
 """
 
 import os
-import re
-import sys
 import json
 import time
 import hashlib
@@ -35,92 +32,26 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import urlopen, Request
 
+# Буквенный код продукта («Кадрик» = AF, как у «Записи экрана» = AE)
+PRODUCT_CODE = "AF"
+
 # Сколько дней работает демо
 TRIAL_DAYS = 3
 
 # Сайт, где проверяется покупка
 SITE_URL = "https://evgeniymamonov.com"
 
-# Номер копии для запуска из исходников (у собранного exe берётся автоматически)
-_COPY_NUMBER = ""
-
-_COPY_RE = re.compile(r"^[A-Z]{2}[0-9]+$")
-
-
-def _tail_id(exe):
-    """Читает метку MAMONOV_ID:XXX из последних 256 байт exe."""
-    try:
-        data = Path(exe).read_bytes()[-256:]
-        marker = b"MAMONOV_ID:"
-        i = data.rfind(marker)
-        if i >= 0:
-            raw = data[i + len(marker):]
-            for sep in (b"\x00", b"\r", b"\n", b" "):
-                raw = raw.split(sep)[0]
-            return raw.decode("ascii", "ignore").strip()
-    except Exception:
-        pass
-    return ""
-
-
-def copy_number():
-    """Номер копии из САМОГО ФАЙЛА: хвост exe → _COPY_NUMBER.
-    Это "свежий" номер конкретного скачанного файла (может меняться
-    от скачивания к скачиванию). Для постоянного номера компьютера
-    используйте copy_for(base)."""
-    if _COPY_NUMBER:
-        return _COPY_NUMBER.upper()
-    try:
-        if getattr(sys, "frozen", False):
-            t = (_tail_id(sys.executable) or "").upper()
-            if _COPY_RE.match(t):
-                return t
-    except Exception:
-        pass
-    return ""
-
-
-def copy_for(base):
-    """ПОСТОЯННЫЙ номер копии для этого компьютера.
-
-    При первом запуске берёт номер из файла (хвост exe) и СОХРАНЯЕТ его
-    на компьютере. Дальше всегда возвращает этот сохранённый номер —
-    даже если позже скачать Кадрика заново с другим номером внутри.
-    Так один компьютер = один постоянный номер.
-    """
-    st = _load(base)
-    saved = (st.get("copy", "") or "").upper()
-    if _COPY_RE.match(saved):
-        return saved
-    # Локального номера нет — либо это первый запуск, либо файл с номером
-    # потерялся (переустановка Windows, чистка папки). Спросим сервер:
-    # не закреплён ли за этим компьютером номер уже раньше?
-    mid = machine_id()
-    rec, reached = recover_copy(mid)
-    if _COPY_RE.match(rec or ""):
-        st["copy"] = rec
-        _save(base, st)
-        return rec
-    # Сервер не знает номера для этого компьютера — берём «свежий» из файла.
-    fresh = copy_number()
-    if _COPY_RE.match(fresh or ""):
-        # Закрепляем как постоянный, ТОЛЬКО если сервер точно ответил
-        # (значит это правда новый компьютер). Если связи не было —
-        # вернём номер на этот сеанс, но не закрепляем: как появится
-        # интернет, восстановим настоящий номер компьютера.
-        if reached:
-            st["copy"] = fresh
-            _save(base, st)
-        return fresh
-    return ""
+# Скрытая папка бренда в профиле Windows (%APPDATA%\\MAMONOV)
+_DEMO_DIR = os.path.join(
+    os.environ.get("APPDATA", os.path.expanduser("~")), "MAMONOV")
 
 
 def machine_id():
-    """Устойчивый идентификатор этого компьютера (короткий хеш).
+    """Устойчивый «отпечаток» этого компьютера (16 hex-символов).
 
-    На Windows берём MachineGuid из реестра (самый стабильный ид СИСТЕМЫ),
-    плюс имя компьютера. Запасной вариант — MAC-адрес. Возвращает
-    16 шестнадцатеричных символов в верхнем регистре — без личных данных.
+    На Windows — MachineGuid из реестра (самый стабильный ид системы) +
+    имя компьютера. Запасной вариант — MAC-адрес. Без личных данных.
+    Та же схема, что и у «Записи экрана» — одна копия = один компьютер.
     """
     parts = []
     if os.name == "nt":
@@ -153,72 +84,50 @@ def machine_id():
     return hashlib.sha256(raw.encode("utf-8", "ignore")).hexdigest()[:16].upper()
 
 
-def check_online(copy=None, machine=None, base=None, timeout=6):
-    """Спрашивает сайт, снята ли демо с этой копии НА ЭТОМ компьютере.
-    Передаёт постоянный номер копии и ид компьютера — сайт запоминает пару.
+# ---- Локальная «галочка оплачено» (папка с отпечатком) ----
 
-    «Переименование»: сайт может вернуть НАСТОЯЩИЙ номер копии,
-    закреплённый за этим компьютером (поле "copy") — например
-    оплаченный AF36, даже если запустили файл с новым номером AF40.
-    Если сайт прислал другой (правильный) номер — принимаем его как свой
-    и сохраняем: на этом компьютере снова один номер.
+def _license_dir():
+    return Path(_DEMO_DIR) / f".license_{PRODUCT_CODE}"
 
-    Возвращает True / False / None (нет связи или нет номера)."""
-    if copy is None:
-        copy = copy_for(base) if base is not None else copy_number()
-    if not _COPY_RE.match(copy or ""):
-        return None
-    if machine is None:
-        machine = machine_id()
-    url = SITE_URL + "/api/check.php?" + urlencode({"instance": copy, "machine": machine})
+
+def _has_local_license():
+    """Папка-галочка есть и в ней отпечаток именно этого компьютера."""
     try:
-        req = Request(url, headers={"User-Agent": "Kadrik"})
-        with urlopen(req, timeout=timeout) as r:
-            obj = json.loads(r.read().decode("utf-8", "ignore") or "{}")
-        licensed = bool(obj.get("licensed"))
-        # «Переименование»: если сайт подсказал другой номер,
-        # закреплённый за этим компьютером — принимаем его как свой.
-        srv = (obj.get("copy", "") or "").upper()
-        if base is not None and _COPY_RE.match(srv) and srv != (copy or "").upper():
-            st = _load(base)
-            st["copy"] = srv
-            _save(base, st)
-        return licensed
+        with open(_license_dir() / "id.txt", "r", encoding="utf-8") as f:
+            val = (f.read().strip() or "").upper()
+        return val == machine_id()
     except Exception:
-        return None
+        return False
 
 
-def recover_copy(machine=None, timeout=6):
-    """Спрашивает сайт, какой номер копии уже закреплён за этим
-    компьютером (по его отпечатку). Нужно, чтобы номер не
-    сбрасывался после переустановки Windows или чистки папки.
-
-    Возвращает пару (copy, reached):
-      copy    — номер копии или "" (если за компьютером ещё ничего
-                не закреплено);
-      reached — удалось ли вообще достучаться до сервера.
-    """
-    if machine is None:
-        machine = machine_id()
-    url = SITE_URL + "/api/recover.php?" + urlencode({"machine": machine})
+def _create_local_license():
+    """Создать папку-галочку с отпечатком компьютера внутри."""
+    d = _license_dir()
     try:
-        req = Request(url, headers={"User-Agent": "Kadrik"})
-        with urlopen(req, timeout=timeout) as r:
-            obj = json.loads(r.read().decode("utf-8", "ignore") or "{}")
-        copy = (obj.get("copy", "") or "").upper()
-        return (copy if _COPY_RE.match(copy) else ""), True
+        d.mkdir(parents=True, exist_ok=True)
+        with open(d / "id.txt", "w", encoding="utf-8") as f:
+            f.write(machine_id())
+        if os.name == "nt":
+            try:
+                import ctypes
+                # 2 = FILE_ATTRIBUTE_HIDDEN
+                ctypes.windll.kernel32.SetFileAttributesW(str(d), 2)
+            except Exception:
+                pass
     except Exception:
-        return "", False
+        pass
 
 
-def _state_file(base):
-    return Path(base) / ".kadrik_lic"
+# ---- Состояние демо (дата первого запуска) ----
+
+def _demo_file():
+    return Path(_DEMO_DIR) / f".demo_date_{PRODUCT_CODE}"
 
 
-def _load(base):
+def _load_demo():
     data = {}
     try:
-        for line in _state_file(base).read_text(encoding="utf-8").splitlines():
+        for line in _demo_file().read_text(encoding="utf-8").splitlines():
             if "=" in line:
                 k, v = line.split("=", 1)
                 data[k.strip()] = v.strip()
@@ -227,15 +136,15 @@ def _load(base):
     return data
 
 
-def _save(base, data):
-    p = _state_file(base)
+def _save_demo(data):
+    p = _demo_file()
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text("\n".join(f"{k}={v}" for k, v in data.items()), encoding="utf-8")
+        p.write_text("\n".join(f"{k}={v}" for k, v in data.items()),
+                     encoding="utf-8")
         if os.name == "nt":
             try:
                 import ctypes
-                # 2 = FILE_ATTRIBUTE_HIDDEN
                 ctypes.windll.kernel32.SetFileAttributesW(str(p), 2)
             except Exception:
                 pass
@@ -243,24 +152,27 @@ def _save(base, data):
         pass
 
 
-def mark_licensed(base):
-    """Запоминает, что копия куплена (больше не блокируем)."""
-    st = _load(base)
-    st["lic"] = "1"
-    _save(base, st)
+def mark_licensed(base=None):
+    """Запомнить, что копия куплена (больше не блокируем).
+
+    Создаёт локальную папку-галочку с отпечатком компьютера — как у
+    «Записи экрана». Параметр base оставлен для совместимости.
+    """
+    _create_local_license()
 
 
-def status(base):
+def status(base=None):
     """Состояние лицензии по местным данным (без сети).
     Возвращает (state, days_left):
-      'activated' — куплена (запомнено);
+      'activated' — куплена (есть локальная галочка с отпечатком);
       'trial'     — демо, осталось days_left дней;
       'expired'   — демо закончилось.
+    Параметр base оставлен для совместимости (храним в %APPDATA%\\MAMONOV).
     """
-    st = _load(base)
-    if st.get("lic") == "1":
+    if _has_local_license():
         return "activated", 0
     now = int(time.time())
+    st = _load_demo()
     try:
         first = int(st.get("first", "0"))
     except Exception:
@@ -268,7 +180,7 @@ def status(base):
     if first <= 0:
         first = now
         st["first"] = str(first)
-        _save(base, st)
+        _save_demo(st)
     # Защита от перевода часов назад: берём самую позднюю виденную дату.
     try:
         seen = int(st.get("seen", "0"))
@@ -277,8 +189,38 @@ def status(base):
     ref = max(now, seen)
     if now >= seen:
         st["seen"] = str(now)
-        _save(base, st)
+        _save_demo(st)
     left = TRIAL_DAYS - (ref - first) // 86400
     if left > 0:
         return "trial", int(left)
     return "expired", 0
+
+
+def check_online(copy=None, machine=None, base=None, timeout=6):
+    """Спрашивает сайт, оплачен ли этот отпечаток компьютера.
+    Отправляет product=AF&machine=<отпечаток>, читает поле "paid".
+
+    Если сайт сказал «оплачено» — сразу создаём локальную галочку,
+    чтобы дальше работать даже без интернета.
+
+    Возвращает True / False / None (нет связи или ошибка).
+    Параметры copy/base оставлены для совместимости."""
+    if machine is None:
+        machine = machine_id()
+    url = SITE_URL + "/api/check.php?" + urlencode(
+        {"product": PRODUCT_CODE, "machine": machine})
+    try:
+        req = Request(url, headers={"User-Agent": "Kadrik"})
+        with urlopen(req, timeout=timeout) as r:
+            obj = json.loads(r.read().decode("utf-8", "ignore") or "{}")
+        paid = bool(obj.get("paid"))
+        if paid:
+            _create_local_license()
+        return paid
+    except Exception:
+        return None
+
+
+def buy_params():
+    """Параметры для ссылки оплаты: product=AF&machine=<отпечаток>."""
+    return {"product": PRODUCT_CODE, "machine": machine_id()}

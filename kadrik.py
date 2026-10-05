@@ -49,7 +49,7 @@ try:
 except ImportError:
     HAS_UPDATER = False
 
-# Лицензия / демо (единая модель бренда: 3 дня демо, потом ключ активации)
+# Лицензия / демо (единая модель бренда: 3 дня демо, привязка к отпечатку ПК)
 try:
     import license as lic
     HAS_LIC = True
@@ -658,11 +658,6 @@ class App:
         self.lic_state = state
         self.lic_left = left
         self._set_demo_label()
-        # Закрепляем постоянный номер копии за этим компьютером (один раз).
-        try:
-            lic.copy_for(BASE_DIR)
-        except Exception:
-            pass
         if state == "trial":
             self._log(T("trial_left", n=left))
             # Тихо в фоне спрашиваем сайт — вдруг копия уже куплена
@@ -736,16 +731,13 @@ class App:
         """Открывает страницу оплаты именно этой копии (с её номером),
         чтобы после оплаты демо снялось автоматически."""
         # Всегда ведём на страницу оплаты (не на главную).
+        # Подставляем отпечаток компьютера (без номера копии) — как у
+        # «Записи экрана»: product=AF&machine=<отпечаток>.
         lang = "en" if LANG == "en" else "ru"
         params = {"lang": lang}
         try:
             if HAS_LIC:
-                copy = (lic.copy_for(BASE_DIR) or "").upper()
-                mid = lic.machine_id() or ""
-                if copy:
-                    params["instance"] = copy
-                if mid:
-                    params["mid"] = mid
+                params.update(lic.buy_params())
         except Exception:
             pass
         try:
