@@ -128,7 +128,7 @@ jobs:
             <Identity
               Name="MAMONOV.Kadrik"
               Version="1.0.0.0"
-              Publisher="CN=Evgeniy Mamonov, O=Evgeniy Mamonov, L=Bessonovka, S=Penzenskaya oblast, C=RU"
+              Publisher="CN=4800BA95-E8C4-43F6-8A2A-13437C0FADC5"
               ProcessorArchitecture="x64" />
             <Properties>
               <DisplayName>Kadrik</DisplayName>
