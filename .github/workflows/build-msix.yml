@@ -1,10 +1,10 @@
 name: Build MSIX (Microsoft Store)
 # Сборка MSIX-пакета Кадрика для публикации в Microsoft Store.
 #
-# Store-сборка: без демо, без кнопки «Разблокировать».
-# Microsoft Store сам управляет trial/лицензией (галочка Free Trial).
-# Маркер edition_store.flag=msstore — программа при старте видит его
-# и пропускает демо, работая как полная версия.
+# Store-сборка с 3-дневным ДЕМО (Вариант Б).
+# Пометка edition_store.flag НЕ создаётся — значит приложение запускает
+# встроенное 3-дневное демо (DemoBlock). Полную версию клиент оплачивает
+# на сайте evgeniymamonov.com.
 #
 # Запускается вручную (кнопка Run workflow).
 
@@ -33,12 +33,6 @@ jobs:
           pip install nuitka==4.2.2
           pip install -r requirements.txt
 
-      - name: Create Store marker
-        shell: pwsh
-        run: |
-          Set-Content -Path 'edition_store.flag' -Value 'msstore' -NoNewline
-          Write-Host '[OK] edition_store.flag = msstore'
-
       - name: Build EXE with Nuitka
         shell: pwsh
         run: |
@@ -61,7 +55,6 @@ jobs:
             '--include-data-files=kadrik.py=kadrik.py',
             '--include-data-files=requirements.txt=requirements.txt',
             '--include-data-files=icon.ico=icon.ico',
-            '--include-data-files=edition_store.flag=edition_store.flag',
             '--output-filename=Kadrik.exe',
             '--output-dir=dist'
           )
