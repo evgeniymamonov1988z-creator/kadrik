@@ -2,48 +2,41 @@
 Лицензия / демо для «Кадрика» — единая модель бренда MAMONOV
 (та же схема, что и у «Записи экрана»).
 
-Как это работает — БЕЗ номеров копий:
-  * Демо работает 3 дня без ограничений.
-  * Одна программа на всё (нет отдельных сборок демо/полная).
+Как это работает — всё решает сервер (ничего не храним на диске):
   * Программа привязана к ОТПЕЧАТКУ этого компьютера (machine_id):
     16 hex-символов из MachineGuid Windows + имя ПК. Без личных данных.
-  * Проверка оплаты по отпечатку:
-      /api/check.php?product=AF&machine=<отпечаток> -> {"paid": true/false}
+  * При первом запуске сервер запоминает дату первого запуска по этому отпечатку.
+  * При каждом запуске спрашиваем сервер:
+      /api/check.php?product=AF&machine=<отпечаток>
+      ответ: {"paid": true/false, "days_left": N, "trial_expired": bool}
+  * Если сервер говорит «оплачено» — полная версия.
+  * Если нет интернета — полная версия (не мешаем работать).
+  * Иначе — демо: осталось days_left дней, потом блокировка.
   * Кнопка «Разблокировать» сама подставляет отпечаток в ссылку оплаты —
     покупателю ничего вводить не надо.
-  * Локальная «галочка оплачено» — папка %APPDATA%\\MAMONOV\\.license_AF
-    с файлом id.txt, где лежит отпечаток ЭТОГО компьютера (чтобы
-    папку нельзя было просто скопировать на другой ПК). Есть галочка ->
-    полная версия сразу, даже без интернета.
-  * Дата первого запуска демо — в %APPDATA%\\MAMONOV\\.demo_date_AF.
-  * Защита от перевода часов назад: помним самую позднюю виденную дату.
+
 Зависимости: только стандартные библиотеки Python.
 Совместимость: функции status()/check_online()/mark_licensed()/machine_id()
 сохранены, чтобы kadrik.py не менялся по вызовам.
 """
 
 import os
+import sys
 import json
-import time
 import hashlib
 import platform
 import uuid
-from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import urlopen, Request
 
 # Буквенный код продукта («Кадрик» = AF, как у «Записи экрана» = AE)
 PRODUCT_CODE = "AF"
 
-# Сколько дней работает демо
+# Сколько дней работает демо (на случай, если сервер не пришлёт число)
 TRIAL_DAYS = 3
 
 # Сайт, где проверяется покупка
 SITE_URL = "https://evgeniymamonov.com"
-
-# Скрытая папка бренда в профиле Windows (%APPDATA%\\MAMONOV)
-_DEMO_DIR = os.path.join(
-    os.environ.get("APPDATA", os.path.expanduser("~")), "MAMONOV")
 
 
 def machine_id():
@@ -84,127 +77,13 @@ def machine_id():
     return hashlib.sha256(raw.encode("utf-8", "ignore")).hexdigest()[:16].upper()
 
 
-# ---- Локальная «галочка оплачено» (папка с отпечатком) ----
+def _ask_server(machine=None, timeout=6):
+    """Спросить сервер про этот компьютер.
 
-def _license_dir():
-    return Path(_DEMO_DIR) / f".license_{PRODUCT_CODE}"
-
-
-def _has_local_license():
-    """Папка-галочка есть и в ней отпечаток именно этого компьютера."""
-    try:
-        with open(_license_dir() / "id.txt", "r", encoding="utf-8") as f:
-            val = (f.read().strip() or "").upper()
-        return val == machine_id()
-    except Exception:
-        return False
-
-
-def _create_local_license():
-    """Создать папку-галочку с отпечатком компьютера внутри."""
-    d = _license_dir()
-    try:
-        d.mkdir(parents=True, exist_ok=True)
-        with open(d / "id.txt", "w", encoding="utf-8") as f:
-            f.write(machine_id())
-        if os.name == "nt":
-            try:
-                import ctypes
-                # 2 = FILE_ATTRIBUTE_HIDDEN
-                ctypes.windll.kernel32.SetFileAttributesW(str(d), 2)
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-
-# ---- Состояние демо (дата первого запуска) ----
-
-def _demo_file():
-    return Path(_DEMO_DIR) / f".demo_date_{PRODUCT_CODE}"
-
-
-def _load_demo():
-    data = {}
-    try:
-        for line in _demo_file().read_text(encoding="utf-8").splitlines():
-            if "=" in line:
-                k, v = line.split("=", 1)
-                data[k.strip()] = v.strip()
-    except Exception:
-        pass
-    return data
-
-
-def _save_demo(data):
-    p = _demo_file()
-    try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text("\n".join(f"{k}={v}" for k, v in data.items()),
-                     encoding="utf-8")
-        if os.name == "nt":
-            try:
-                import ctypes
-                ctypes.windll.kernel32.SetFileAttributesW(str(p), 2)
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-
-def mark_licensed(base=None):
-    """Запомнить, что копия куплена (больше не блокируем).
-
-    Создаёт локальную папку-галочку с отпечатком компьютера — как у
-    «Записи экрана». Параметр base оставлен для совместимости.
+    Возвращает словарь ответа сервера (paid / days_left / trial_expired)
+    или None, если нет связи / ошибка. None означает «нет интернета».
+    Сервер сам при первом обращении запоминает дату первого запуска.
     """
-    _create_local_license()
-
-
-def status(base=None):
-    """Состояние лицензии по местным данным (без сети).
-    Возвращает (state, days_left):
-      'activated' — куплена (есть локальная галочка с отпечатком);
-      'trial'     — демо, осталось days_left дней;
-      'expired'   — демо закончилось.
-    Параметр base оставлен для совместимости (храним в %APPDATA%\\MAMONOV).
-    """
-    if _has_local_license():
-        return "activated", 0
-    now = int(time.time())
-    st = _load_demo()
-    try:
-        first = int(st.get("first", "0"))
-    except Exception:
-        first = 0
-    if first <= 0:
-        first = now
-        st["first"] = str(first)
-        _save_demo(st)
-    # Защита от перевода часов назад: берём самую позднюю виденную дату.
-    try:
-        seen = int(st.get("seen", "0"))
-    except Exception:
-        seen = 0
-    ref = max(now, seen)
-    if now >= seen:
-        st["seen"] = str(now)
-        _save_demo(st)
-    left = TRIAL_DAYS - (ref - first) // 86400
-    if left > 0:
-        return "trial", int(left)
-    return "expired", 0
-
-
-def check_online(copy=None, machine=None, base=None, timeout=6):
-    """Спрашивает сайт, оплачен ли этот отпечаток компьютера.
-    Отправляет product=AF&machine=<отпечаток>, читает поле "paid".
-
-    Если сайт сказал «оплачено» — сразу создаём локальную галочку,
-    чтобы дальше работать даже без интернета.
-
-    Возвращает True / False / None (нет связи или ошибка).
-    Параметры copy/base оставлены для совместимости."""
     if machine is None:
         machine = machine_id()
     url = SITE_URL + "/api/check.php?" + urlencode(
@@ -213,12 +92,52 @@ def check_online(copy=None, machine=None, base=None, timeout=6):
         req = Request(url, headers={"User-Agent": "Kadrik"})
         with urlopen(req, timeout=timeout) as r:
             obj = json.loads(r.read().decode("utf-8", "ignore") or "{}")
-        paid = bool(obj.get("paid"))
-        if paid:
-            _create_local_license()
-        return paid
+        return obj if isinstance(obj, dict) else {}
     except Exception:
         return None
+
+
+def evaluate():
+    """Главная проверка состояния (всё решает сервер).
+
+    Возвращает (state, days_left):
+      'activated' — полная версия (оплачено или нет интернета);
+      'trial'     — демо, осталось days_left дней;
+      'expired'   — демо закончилось.
+    """
+    data = _ask_server()
+    if data is None:
+        # Нет интернета — не мешаем работать (полная версия).
+        return "activated", 0
+    if bool(data.get("paid")):
+        return "activated", 0
+    try:
+        left = int(data.get("days_left", 0))
+    except Exception:
+        left = 0
+    if left > 0:
+        return "trial", left
+    return "expired", 0
+
+
+def status(base=None):
+    """Состояние лицензии (спрашивает сервер). base — для совместимости."""
+    return evaluate()
+
+
+def check_online(copy=None, machine=None, base=None, timeout=6):
+    """Спрашивает сайт, оплачен ли этот отпечаток компьютера.
+    Возвращает True / False / None (нет связи). Оставлено для совместимости."""
+    data = _ask_server(machine=machine, timeout=timeout)
+    if data is None:
+        return None
+    return bool(data.get("paid"))
+
+
+def mark_licensed(base=None):
+    """Раньше создавала локальную «галочку». Теперь всё хранится на сервере,
+    поэтому локально ничего не пишем. Оставлено для совместимости."""
+    return None
 
 
 def buy_params():
@@ -229,11 +148,11 @@ def buy_params():
 def _app_dir():
     """Папка, где лежит .exe (или .py при запуске из исходника)."""
     try:
-        if getattr(__import__("sys"), "frozen", False):
+        if getattr(sys, "frozen", False):
             return os.path.dirname(os.path.abspath(sys.executable))
         return os.path.dirname(os.path.abspath(__file__))
     except Exception:
-        return os.path.dirname(os.path.abspath(__file__)) if '__file__' in dir() else '.'
+        return "."
 
 
 def _is_msstore_edition():
@@ -248,7 +167,7 @@ def _is_msstore_edition():
 
 
 def status_msstore_aware(base=None):
-    """То же, что status(), но для Microsoft Store-сборки сразу возвращает 'activated'."""
+    """То же, что status(), но для Microsoft Store-сборки сразу 'activated'."""
     if _is_msstore_edition():
         return 'activated', 0
-    return status(base)
+    return evaluate()

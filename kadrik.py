@@ -646,45 +646,41 @@ class App:
 
     # -------- Демо / активация --------
     def _check_license(self):
-        """Определяет состояние демо и реагирует."""
+        """Определяет состояние демо (решает сервер) и реагирует.
+
+        Проверку делаем в фоне, чтобы окно не подвисало на время запроса
+        к серверу. Пока ответа нет — не мешаем работать."""
         if not HAS_LIC:
             self.lic_state = "activated"
             self._set_demo_label()
             return
+        # Пока спрашиваем сервер — показываем «полную» (окно не блокируем).
+        self.lic_state = "activated"
+        self.lic_left = 0
+        self._set_demo_label()
+        threading.Thread(target=self._license_worker, daemon=True).start()
+
+    def _license_worker(self):
+        """Спрашивает сервер и применяет результат (в фоне)."""
         try:
             state, left = lic.status_msstore_aware(BASE_DIR)
         except Exception:
             state, left = "activated", 0
         self.lic_state = state
         self.lic_left = left
-        self._set_demo_label()
-        if state == "trial":
-            self._log(T("trial_left", n=left))
-            # Тихо в фоне спрашиваем сайт — вдруг копия уже куплена
-            threading.Thread(target=self._online_check, args=(False,), daemon=True).start()
-        elif state == "expired":
-            self._log(T("demo_over"))
-            # Пробуем снять демо онлайн; если нет — покажем окно покупки
-            threading.Thread(target=self._online_check, args=(True,), daemon=True).start()
 
-    def _online_check(self, show_if_locked):
-        """Спрашивает сайт, куплена ли копия (в фоне)."""
+        def _apply():
+            self._set_demo_label()
+            if state == "trial":
+                self._log(T("trial_left", n=left))
+            elif state == "expired":
+                self._log(T("demo_over"))
+            self._close_activation()
+
         try:
-            result = lic.check_online(base=BASE_DIR)
+            self.root.after(0, _apply)
         except Exception:
-            result = None
-        if result is True:
-            try:
-                lic.mark_licensed(BASE_DIR)
-            except Exception:
-                pass
-            self.lic_state = "activated"
-            self._log(T("act_ok"))
-            self.root.after(0, self._set_demo_label)
-            self.root.after(0, self._close_activation)
-        elif show_if_locked:
-            # не куплено или нет связи — просто показываем ссылку на панели (без всплывающего окна)
-            self.root.after(0, self._set_demo_label)
+            pass
 
     def _close_activation(self):
         win = getattr(self, "_act_win", None)
