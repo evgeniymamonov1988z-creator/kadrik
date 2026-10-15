@@ -1,5 +1,5 @@
 name: Build Windows EXE (Nuitka)
-# build trigger: 2026-10-04
+# build trigger: 2026-10-15 permanent-sign
 
 # Сборка .exe через Nuitka на Windows.
 # Nuitka компилирует Python в настоящий машинный код —
@@ -81,8 +81,14 @@ jobs:
 
       - name: Sign main EXE with own certificate
         shell: pwsh
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
         run: |
-          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Evgeniy Mamonov" -KeyUsage DigitalSignature -FriendlyName "Mamonov Code Signing" -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(10)
+          $pfxBytes = [Convert]::FromBase64String($env:SIGN_PFX_BASE64)
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'sign.pfx'
+          [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
+          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath, $env:SIGN_PFX_PASSWORD, 'Exportable,PersistKeySet')
           $exe = Get-ChildItem 'dist\Kadrik\*.exe' | Select-Object -First 1
           $sig = Set-AuthenticodeSignature -FilePath $exe.FullName -Certificate $cert -TimestampServer "http://timestamp.digicert.com"
           Write-Host ('[OK] Signed: ' + $exe.FullName + ' -> ' + $sig.Status)
@@ -158,8 +164,14 @@ jobs:
 
       - name: Sign installer with own certificate
         shell: pwsh
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
         run: |
-          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Evgeniy Mamonov" -KeyUsage DigitalSignature -FriendlyName "Mamonov Code Signing" -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(10)
+          $pfxBytes = [Convert]::FromBase64String($env:SIGN_PFX_BASE64)
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'sign.pfx'
+          [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
+          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath, $env:SIGN_PFX_PASSWORD, 'Exportable,PersistKeySet')
           $exe = Get-ChildItem 'dist\Ustanovka*.exe' | Select-Object -First 1
           $sig = Set-AuthenticodeSignature -FilePath $exe.FullName -Certificate $cert -TimestampServer "http://timestamp.digicert.com"
           Write-Host ('[OK] Signed: ' + $exe.FullName + ' -> ' + $sig.Status)
