@@ -93,6 +93,16 @@ jobs:
           $sig = Set-AuthenticodeSignature -FilePath $exe.FullName -Certificate $cert -TimestampServer "http://timestamp.digicert.com"
           Write-Host ('[OK] Signed: ' + $exe.FullName + ' -> ' + $sig.Status)
 
+      - name: Make FULL package (secret link) and mark folder as DEMO
+        shell: pwsh
+        run: |
+          # ПОЛНАЯ версия (для секретной ссылки): папка БЕЗ demo.flag.
+          Compress-Archive -Path 'dist\Kadrik' -DestinationPath 'dist\Kadrik-Full.zip' -Force
+          Write-Host '[OK] dist\Kadrik-Full.zip (полная версия)'
+          # Делаем папку ДЕМО: кладём demo.flag рядом с .exe → демо 3 дня.
+          New-Item -ItemType File -Path 'dist\Kadrik\demo.flag' -Force | Out-Null
+          Write-Host '[OK] demo.flag добавлен'
+
       - name: Package folder into ZIP
         shell: pwsh
         run: |
