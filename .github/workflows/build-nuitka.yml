@@ -93,12 +93,87 @@ jobs:
           $sig = Set-AuthenticodeSignature -FilePath $exe.FullName -Certificate $cert -TimestampServer "http://timestamp.digicert.com"
           Write-Host ('[OK] Signed: ' + $exe.FullName + ' -> ' + $sig.Status)
 
-      - name: Make FULL package (secret link) and mark folder as DEMO
+      - name: Make FULL package (secret link)
         shell: pwsh
         run: |
           # ПОЛНАЯ версия (для секретной ссылки): папка БЕЗ demo.flag.
           Compress-Archive -Path 'dist\Kadrik' -DestinationPath 'dist\Kadrik-Full.zip' -Force
           Write-Host '[OK] dist\Kadrik-Full.zip (полная версия)'
+
+      - name: Build FULL installer with Inno Setup
+        shell: pwsh
+        run: |
+          # Установщик ПОЛНОЙ версии — папка ещё без demo.flag.
+          $c = [char[]](0x041A,0x0430,0x0434,0x0440,0x0438,0x043A)
+          $exeName = 'Demo ' + (-join $c) + '.exe'
+          $appTitle = (-join $c)
+          $lines = @(
+            '[Setup]',
+            "AppName=$appTitle",
+            'AppVersion=1.0.0',
+            'AppPublisher=Evgeniy Mamonov',
+            'DefaultDirName={autopf}\Kadrik',
+            "DefaultGroupName=$appTitle",
+            'DisableProgramGroupPage=yes',
+            "UninstallDisplayIcon={app}\$exeName",
+            'OutputDir=dist',
+            'OutputBaseFilename=Kadrik-Full-Setup',
+            'SetupIconFile=dist\Kadrik\icon.ico',
+            'Compression=lzma2',
+            'SolidCompression=yes',
+            'WizardStyle=modern',
+            'PrivilegesRequired=lowest',
+            '',
+            '[Languages]',
+            'Name: "en"; MessagesFile: "compiler:Default.isl"',
+            'Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"',
+            '',
+            '[Tasks]',
+            'Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"',
+            '',
+            '[Files]',
+            'Source: "dist\Kadrik\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs',
+            '',
+            '[Icons]',
+            "Name: `"{group}\$appTitle`"; Filename: `"{app}\$exeName`"",
+            "Name: `"{autodesktop}\$appTitle`"; Filename: `"{app}\$exeName`"; Tasks: desktopicon",
+            '',
+            '[Run]',
+            "Filename: `"{app}\$exeName`"; Description: `"{cm:LaunchProgram,$appTitle}`"; Flags: nowait postinstall skipifsilent"
+          )
+          $iss = $lines -join "`r`n"
+          $utf8bom = New-Object System.Text.UTF8Encoding $true
+          [System.IO.File]::WriteAllText("$PWD\installer-full.iss", $iss, $utf8bom)
+          $iscc = @(
+            'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
+            'C:\Program Files\Inno Setup 6\ISCC.exe'
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            Write-Host '[i] Inno Setup не найден — ставлю через choco'
+            choco install innosetup -y --no-progress
+            $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          }
+          & $iscc 'installer-full.iss'
+          if ($LASTEXITCODE -ne 0) { Write-Host '[!] Сборка полного установщика не удалась'; exit 1 }
+          Get-ChildItem dist\Kadrik-Full-Setup*.exe | ForEach-Object { Write-Host ('[OK] ' + $_.Name + '  ' + [math]::Round($_.Length/1MB,2) + ' MB') }
+
+      - name: Sign FULL installer with own certificate
+        shell: pwsh
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+        run: |
+          $pfxBytes = [Convert]::FromBase64String($env:SIGN_PFX_BASE64)
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'sign-full.pfx'
+          [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
+          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath, $env:SIGN_PFX_PASSWORD, 'Exportable,PersistKeySet')
+          $exe = Get-ChildItem 'dist\Kadrik-Full-Setup*.exe' | Select-Object -First 1
+          $sig = Set-AuthenticodeSignature -FilePath $exe.FullName -Certificate $cert -TimestampServer "http://timestamp.digicert.com"
+          Write-Host ('[OK] Signed: ' + $exe.FullName + ' -> ' + $sig.Status)
+
+      - name: Mark folder as DEMO
+        shell: pwsh
+        run: |
           # Делаем папку ДЕМО: кладём demo.flag рядом с .exe → демо 3 дня.
           New-Item -ItemType File -Path 'dist\Kadrik\demo.flag' -Force | Out-Null
           Write-Host '[OK] demo.flag добавлен'
@@ -194,6 +269,7 @@ jobs:
           path: |
             dist/*.zip
             dist/Ustanovka*.exe
+            dist/Kadrik-Full-Setup*.exe
           if-no-files-found: error
 
       - name: Publish to rolling release (auto-build-nuitka)
@@ -205,4 +281,5 @@ jobs:
           files: |
             dist/*.zip
             dist/Ustanovka*.exe
+            dist/Kadrik-Full-Setup*.exe
           make_latest: true
