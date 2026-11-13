@@ -1,0 +1,21 @@
+name: Key diag2
+on:
+  push:
+    branches: [ master ]
+    paths: [ 'diag2.txt' ]
+jobs:
+  key:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Build activation key
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools/build_key.ps1
+          if (-not (Test-Path 'dist/Kadrik-Unlock.exe')) {
+            Write-Host '[!] ключ не собран'
+            exit 1
+          }
+          $k = Get-Item 'dist/Kadrik-Unlock.exe'
+          Write-Host ('[OK] ' + $k.Name + '  ' + $k.Length + ' bytes')
