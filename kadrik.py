@@ -196,7 +196,7 @@ STRINGS = {
         "no_ff":    "No video engine.\nInternet needed",
         "old_ver":  "Old version: no auto-download",
         # Demo / activation
-        "trial_left":  "Demo: {n} Days Left",
+        "trial_left":  "Demo: {n} days left",
         "demo_over":   "Demo Expired",
         "buy_at":      "Full version for $9.9",
         "checking_lic":"Checking Purchase…",
@@ -672,6 +672,14 @@ class App:
             state, left = "activated", 0
         self.lic_state = state
         self.lic_left = left
+        try:
+            if getattr(lic, "HAS_STATUS_HELPERS", True):
+                lic.write_status("demo" if state == "trial" else state, left, BASE_DIR)
+                if state in ("trial", "expired"):
+                    lic.demo_ping("demo" if state == "trial" else "expired",
+                                  left if state == "trial" else 0)
+        except Exception:
+            pass
 
         def _apply():
             self._set_demo_label()
