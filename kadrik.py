@@ -159,7 +159,7 @@ STRINGS = {
         # Демо / активация
         "trial_left":  "Демо: осталось {n} дн.",
         "demo_over":   "Демо закончилось",
-        "buy_at":      "Полная версия на сайте",
+        "buy_at":      "Полная версия за 499 рублей",
         "checking_lic":"Проверяю покупку…",
         "recheck":     "Проверить снова",
         "not_yet":     "Пока не найдено.\nПосле оплаты нажмите «Проверить снова».",
@@ -198,7 +198,7 @@ STRINGS = {
         # Demo / activation
         "trial_left":  "Demo: {n} Days Left",
         "demo_over":   "Demo Expired",
-        "buy_at":      "Get the full version",
+        "buy_at":      "Full version for $9.9",
         "checking_lic":"Checking Purchase…",
         "recheck":     "Check Again",
         "not_yet":     "Not Found Yet.\nAfter Payment Click Check Again.",
@@ -816,4 +816,9 @@ if __name__ == "__main__":
         except Exception:
             pass
         sys.exit(0)
+    try:
+        if HAS_LIC:
+            lic.demo_startup()
+    except Exception:
+        pass
     App()
