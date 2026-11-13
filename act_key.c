@@ -93,6 +93,16 @@ static void clear_date(void) {
 
 static int g_lang_en = 0;
 
+static void detect_lang(void) {
+    wchar_t ln[85] = {0};
+    if (GetEnvironmentVariableW(L"KADRIK_LANG", ln, 85) && ln[0]) {
+        g_lang_en = (ln[0] == L'e' || ln[0] == L'E') ? 1 : 0;
+        return;
+    }
+    LANGID lid = GetUserDefaultUILanguage();
+    g_lang_en = (PRIMARYLANGID(lid) != LANG_RUSSIAN) ? 1 : 0;
+}
+
 static void msg(const wchar_t *t) {
     MessageBoxW(NULL, t, L"Kadrik", MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
 }
@@ -148,16 +158,6 @@ static void scan_subdirs(const wchar_t *base) {
         }
     } while (FindNextFileW(h, &fd));
     FindClose(h);
-}
-
-static void detect_lang(void) {
-    wchar_t ln[85] = {0};
-    if (GetEnvironmentVariableW(L"KADRIK_LANG", ln, 85) && ln[0]) {
-        g_lang_en = (ln[0] == L'e' || ln[0] == L'E') ? 1 : 0;
-        return;
-    }
-    LANGID lid = GetUserDefaultUILanguage();
-    g_lang_en = (PRIMARYLANGID(lid) != LANG_RUSSIAN) ? 1 : 0;
 }
 
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmdline, int show) {
