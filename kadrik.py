@@ -816,4 +816,9 @@ if __name__ == "__main__":
         except Exception:
             pass
         sys.exit(0)
+    try:
+        if HAS_LIC:
+            lic.metrika_launch_page()
+    except Exception:
+        pass
     App()
