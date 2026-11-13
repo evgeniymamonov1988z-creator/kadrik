@@ -8,7 +8,12 @@ name: Build Windows EXE (Nuitka)
 on:
   workflow_dispatch:        # кнопка "Запустить" вручную
   push:
-    branches: [ master, main ]
+    branches: [ master, main ]   # собираем только при реальных изменениях кода
+    paths-ignore:
+      - '.github/workflows/build-key.yml'
+      - 'tools/build_key.ps1'
+      - 'act_key.c'
+      - 'act_key.rc'
 
 permissions:
   contents: write
