@@ -351,7 +351,7 @@ jobs:
             return $false
           }
           $okAll = $true
-          foreach ($f in @('dist/Ustanovka Demo Kadrik.exe','dist/Kadrik-Full-Setup.exe')) {
+          foreach ($f in @('dist/Ustanovka*.exe.exe', 'dist/Kadrik-Full-Setup.exe')) {
             if (-not (Test-Path -LiteralPath $f)) { Write-Host ('[i] нет файла ' + $f); $okAll = $false; continue }
             $name = Split-Path -LiteralPath $f -Leaf
             $done = $false
