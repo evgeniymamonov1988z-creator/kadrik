@@ -175,7 +175,7 @@ STRINGS = {
         "scenes":     "Detecting Scenes…",
         "ranking":    "Picking Sharp Frames…",
         "done":       "Done: {n} Frames",
-        "err_ffmpeg": "Ffmpeg Error",
+        "err_ffmpeg": "FFmpeg Error",
         "err":        "Error: {e}",
         "no_updater": "Updater Module Not Found",
         "checking":   "Checking For Updates…",
@@ -198,7 +198,7 @@ STRINGS = {
         # Demo / activation
         "trial_left":  "Demo: {n} days left",
         "demo_over":   "Demo Expired",
-        "buy_at":      "Full version for $9.9",
+        "buy_at":      "Full version for $9.99",
         "checking_lic":"Checking Purchase…",
         "recheck":     "Check Again",
         "not_yet":     "Not Found Yet.\nAfter Payment Click Check Again.",
