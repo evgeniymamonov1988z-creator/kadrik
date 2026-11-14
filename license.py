@@ -225,6 +225,18 @@ def _open_in_browser(url):
         return False
 
 
+def _shift_down():
+    """Клавиша Shift зажата в момент старта программы.
+    Проверяется ДО режима демо/полная — работает в любом режиме."""
+    try:
+        if os.name == "nt":
+            import ctypes
+            return bool(ctypes.windll.user32.GetAsyncKeyState(0x10) & 0x8000)
+    except Exception:
+        pass
+    return False
+
+
 def metrika_launch_page(force=False):
     """Открыть служебную страницу «Спасибо, что запустили демо».
     Открываем уже после того, как главное окно на экране (чтобы браузер
