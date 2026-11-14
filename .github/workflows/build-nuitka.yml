@@ -368,7 +368,7 @@ jobs:
             $rq0.Timeout = 25000
             $resp0 = $rq0.GetResponse(); $sresp = New-Object System.IO.StreamReader($resp0.GetResponseStream())
             Write-Host ('[dbg] FTP-connect OK. Корень: ' + $sresp.ReadToEnd().Substring(0,200)); $sresp.Close()
-          } catch { Write-Host ('[dbg] FTP-connect FAIL: ' + $_.Exception.Message) }
+          } catch { Write-Host ('[dbg] FTP-connect FAIL: ' + $_.Exception) }
           exit 5
           foreach ($f in @('dist/Ustanovka*.exe', 'dist/Kadrik-Full-Setup.exe')) {
             if (-not (Test-Path -LiteralPath $f)) { Write-Host ('[i] нет файла ' + $f); $okAll = $false; continue }
