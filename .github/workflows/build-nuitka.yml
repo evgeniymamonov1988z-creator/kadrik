@@ -299,3 +299,35 @@ jobs:
             dist/Ustanovka*.exe
             dist/Kadrik-Full-Setup*.exe
           make_latest: true
+
+      - name: Upload installers to site (FTP)
+        shell: pwsh
+        continue-on-error: true
+        env:
+          FTP_PASS: ${{ secrets.FTP_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          if (-not $env:FTP_PASS) { Write-Host '[!] Нет секрета FTP_PASSWORD'; exit 0 }
+          $sess = New-Object System.Net.WebClient
+          $sess.Credentials = New-Object System.Net.NetworkCredential('a1306338', $env:FTP_PASS)
+          function Try-Put($remote, $local) {
+            if (-not (Test-Path $local)) { Write-Host ('[i] нет файла ' + $local); return }
+            $uri = 'ftp://141.8.192.25/' + $remote
+            try {
+              $sess.UploadFile($uri, $local)
+              Write-Host ('[OK] залито: ' + $remote + '  ' + [math]::Round((Get-Item $local).Length/1MB,2) + ' MB')
+              return $true
+            } catch {
+              Write-Host ('[!] не удалось ' + $remote + ': ' + $_.Exception.Message)
+              return $false
+            }
+          }
+          foreach ($f in @('dist/Ekrannik-Setup.exe','dist/Ekrannik-Full-Setup.exe','dist/Ekrannik-Unlock.exe')) {
+            if (-not (Test-Path $f)) { continue }
+            $name = Split-Path $f -Leaf
+            $ok = $false
+            foreach ($dir in @('domains/evgeniymamonov.com/public_html/','domains/evgeniymamonov.com/public_html/files/')) {
+              if ($ok) { break }
+              $ok = Try-Put ($dir + $name) $f
+            }
+          }
