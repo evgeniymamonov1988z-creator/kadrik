@@ -243,7 +243,14 @@ def metrika_launch_page(force=False):
     не перекрыл старт программы), один раз на копию."""
     try:
         manual = force or _shift_down()
-        _trace("metrika: shift=%s" % manual)
+        # Если Shift нажат — путь МАКСИМАЛЬНО КОРОТКИЙ: без проверки
+        # владельца, без отметок «показывали» и без сетевой проверки
+        # страницы (на части сетей она отвечает медленно и обрывается).
+        if manual:
+            _trace("metrika: shift=1 — открываем сразу")
+            _open_in_browser(_LAUNCH_PAGE)
+            return True
+        _trace("metrika: shift=0")
         if _is_owner() and not manual:
             _trace("metrika: владелец без Shift — не открываем")
             return False
