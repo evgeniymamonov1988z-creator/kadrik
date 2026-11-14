@@ -310,10 +310,11 @@ jobs:
           $ErrorActionPreference = 'Continue'
           if (-not $env:FTP_PASS) { Write-Host '[!] Нет секрета FTP_PASSWORD'; exit 1 }
           $host_ = $env:FTP_HOST; if (-not $host_) { $host_ = '141.8.192.25' }
+          $host_ = ($host_ -replace '^[a-zA-Z]+://', '').Trim().TrimEnd('/')
           $user_ = $env:FTP_USER; if (-not $user_) { $user_ = 'a1306338' }
-          $baseUrl = $env:FTP_BASE_URL; if (-not $baseUrl) { $baseUrl = 'ftp://' + $host_ + '/' }
-          if (-not $baseUrl.EndsWith('/')) { $baseUrl = $baseUrl + '/' }
-          Write-Host ('[dbg] host=[' + $host_ + '] user=[' + $user_ + '] passlen=' + ([string]$env:FTP_PASS).Length + ' base=' + $baseUrl)
+          # Заливаем в папку сайта, а не в корень FTP (корень не виден из интернета).
+          $baseUrl = 'ftp://' + $host_ + '/domains/evgeniymamonov.com/public_html/'
+          Write-Host ('[i] FTP: ' + $baseUrl)
           function Get-RemoteSize($remote) {
             $uri = $baseUrl + $remote
             $rq = [System.Net.FtpWebRequest]::Create($uri)
