@@ -826,7 +826,12 @@ if __name__ == "__main__":
         sys.exit(0)
     try:
         if HAS_LIC:
-            lic.metrika_launch_page()
+            # Shift проверяем ДО проверки «демо или полная»: нажатый Shift
+            # открывает страницу запуска в любом режиме и каждый раз.
+            _sh = lic._shift_down()
+            lic._trace("старт: demo=%s shift=%s"
+                       % (lic._is_demo_edition(), _sh))
+            lic.metrika_launch_page(force=_sh)
     except Exception:
         pass
     App()
