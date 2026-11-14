@@ -308,8 +308,7 @@ jobs:
           FTP_PASS: ${{ secrets.FTP_PASSWORD }}
         run: |
           $ErrorActionPreference = 'Continue'
-          Write-Host ('[dbg] PASS_len=' + ($env:FTP_PASS | Measure-Object -Character).Characters + ' USER=[' + $env:FTP_USER + '] HOST=[' + $env:FTP_HOST + ']')
-          if ($env:FTP_PASS) { Write-Host ('[dbg] PASS_md5=' + ([System.BitConverter]::ToString([System.Security.Cryptography.MD5]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($env:FTP_PASS))).Replace('-','').ToLower()) + ' PASS_tail=' + $env:FTP_PASS.Substring([Math]::Max(0,$env:FTP_PASS.Length-2))) }
+          try { Write-Host ('[dbg] PASS_len=' + ($env:FTP_PASS | Measure-Object -Character).Characters + ' USER=[' + $env:FTP_USER + '] HOST=[' + $env:FTP_HOST + '] HASH=' + ([System.BitConverter]::ToString([System.Security.Cryptography.MD5]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes([string]$env:FTP_PASS))).Replace('-','').ToLower())) } catch { Write-Host ('[dbg] diag1 fail: ' + $_.Exception.Message) }
           if (-not $env:FTP_PASS) { Write-Host '[!] Нет секрета FTP_PASSWORD'; exit 1 }
           try {
             $c = New-Object System.Net.Sockets.TcpClient
