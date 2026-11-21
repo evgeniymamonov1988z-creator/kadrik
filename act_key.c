@@ -14,6 +14,8 @@
    --silent -> no dialogs, exit code only (0 = ok, 2 = program exe not found)
 */
 
+#define PROD_EN L"Kadrik"
+
 /* EN text by default; RU only when the Windows UI language is Russian.
    Language does not follow the product name: RU Windows -> Russian window,
    any other Windows -> English window. */
@@ -31,7 +33,6 @@ static void msg2(const wchar_t *en, const wchar_t *ru) {
 #define PROD_CODE_W L"AF"
 #define LICENSE_FILE L"license_AF.dat"
 #define LICENSE_MARK L"c92776283e34f3efa82a470f5dd5ce09"
-#define PROD_EN L"Kadrik"
 #define PROD_RU L"\u041a\u0430\u0434\u0440\u0438\u043a"
 #define PROG_EXE L"Demo \u041a\u0430\u0434\u0440\u0438\u043a.exe"
 #define PROG_DIR L"Kadrik"
